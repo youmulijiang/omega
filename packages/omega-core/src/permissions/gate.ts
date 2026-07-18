@@ -1,6 +1,5 @@
 const DANGEROUS_PATTERNS: RegExp[] = [
-	/\bnmap\b.*-s[SATUV]/i, // nmap 主动扫描
-	/\bnmap\b/i, // 任意 nmap
+	/\bnmap\b\s+(?!--)\S/i, // nmap with scan flags or target (excludes bare nmap and --help/--version)
 	/\bsqlmap\b/i, // SQL 注入
 	/\bmsf(console|venom)\b/i, // Metasploit
 	/\bhydra\b/i, // 暴力破解

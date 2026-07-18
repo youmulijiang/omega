@@ -30,9 +30,9 @@ export function generateReport(entries: SessionEntry[], target: string): string 
 
 	return `# OMEGA 渗透测试报告
 
-**日期：** ${now}
-**目标：** ${target}
-**工具：** OMEGA Network Security Agent
+**日期：** ${now}  
+**目标：** ${target}  
+**工具：** OMEGA Network Security Agent  
 
 ---
 
