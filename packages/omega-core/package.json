@@ -1,0 +1,20 @@
+{
+  "name": "@omega/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/entry.js",
+  "types": "./dist/entry.d.ts",
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsgo -p tsconfig.build.json",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "shx": "0.4.0",
+    "vitest": "4.1.9"
+  }
+}
