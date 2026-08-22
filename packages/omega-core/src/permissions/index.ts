@@ -1,6 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isDangerousCommand } from "./gate.ts";
 
+/**
+ * 注册 OMEGA 的安全门控：对可疑高危 `bash` 工具调用进行拦截并提示用户确认。
+ *
+ * - 非交互模式（无 UI）会直接阻止执行
+ * - 交互模式会弹出确认框
+ *
+ * @param pi - Pi 扩展 API。
+ */
 export function registerPermissions(pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash") return undefined;

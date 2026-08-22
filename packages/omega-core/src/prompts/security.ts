@@ -1,3 +1,9 @@
+/**
+ * 将 OMEGA 的网络安全工作语境拼接到基础 system prompt 上。
+ *
+ * @param basePrompt - Pi/上游提供的基础系统提示词。
+ * @returns 拼接后的完整系统提示词。
+ */
 export function buildSecurityPrompt(basePrompt: string): string {
 	const securityContext = `
 

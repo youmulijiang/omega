@@ -1,5 +1,15 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
+/**
+ * 从 Pi 的消息 content 中提取纯文本。
+ *
+ * 兼容：
+ * - `string`
+ * - 类似 OpenAI content-part 数组（只采集 `{ type: "text" }`）
+ *
+ * @param content - 消息内容。
+ * @returns 拼接后的纯文本（无法解析则返回空字符串）。
+ */
 function extractText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (Array.isArray(content)) {
@@ -11,6 +21,17 @@ function extractText(content: unknown): string {
 	return "";
 }
 
+/**
+ * 基于会话条目生成 Markdown 渗透测试报告。
+ *
+ * 规则（启发式）：
+ * - 用户消息 -> “操作记录”
+ * - 助手消息 -> “发现”
+ *
+ * @param entries - 会话条目（通常来自 `ctx.sessionManager.getBranch()`）。
+ * @param target - 测试目标描述。
+ * @returns Markdown 格式报告全文。
+ */
 export function generateReport(entries: SessionEntry[], target: string): string {
 	const now = new Date().toISOString().split("T")[0];
 
