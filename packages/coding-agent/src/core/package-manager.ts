@@ -27,12 +27,14 @@ import type { Readable } from "node:stream";
 import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
-import { maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
+import { gt, maxSatisfying, rcompare, satisfies, valid, validRange } from "semver";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
+import { stripBom } from "../utils/text.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
+import { type PiManifest, readPiManifest } from "./pi-manifest.ts";
 import type { PackageSource, SettingsManager } from "./settings-manager.ts";
 
 const NETWORK_TIMEOUT_MS = 10000;
@@ -153,13 +155,6 @@ interface NpmUpdateTarget extends ConfiguredUpdateSource {
 
 interface GitUpdateTarget extends ConfiguredUpdateSource {
 	parsed: GitSource;
-}
-
-interface PiManifest {
-	extensions?: string[];
-	skills?: string[];
-	prompts?: string[];
-	themes?: string[];
 }
 
 interface ResourceAccumulator {
@@ -403,7 +398,12 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			if (mode === "pi" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
+			const shouldIncludeMarkdownFile =
+				isFile &&
+				entry.name.endsWith(".md") &&
+				!ig.ignores(relPath) &&
+				((mode === "pi" && dir === root) || (mode === "agents" && dir !== root));
+			if (shouldIncludeMarkdownFile) {
 				entries.push(fullPath);
 				continue;
 			}
@@ -533,20 +533,10 @@ function collectAutoThemeEntries(dir: string): string[] {
 	return entries;
 }
 
-function readPiManifestFile(packageJsonPath: string): PiManifest | null {
-	try {
-		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { pi?: PiManifest };
-		return pkg.pi ?? null;
-	} catch {
-		return null;
-	}
-}
-
 function resolveExtensionEntries(dir: string): string[] | null {
 	const packageJsonPath = join(dir, "package.json");
 	if (existsSync(packageJsonPath)) {
-		const manifest = readPiManifestFile(packageJsonPath);
+		const manifest = readPiManifest(packageJsonPath);
 		if (manifest?.extensions?.length) {
 			const entries: string[] = [];
 			for (const extPath of manifest.extensions) {
@@ -1145,7 +1135,7 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const targetVersion = await this.getLatestNpmVersion(source.version ? source.spec : source.name, source.range);
-			return targetVersion !== installedVersion;
+			return gt(targetVersion, installedVersion);
 		} catch {
 			// Preserve existing update behavior when version lookup fails.
 			return true;
@@ -1479,7 +1469,7 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const targetVersion = await this.getLatestNpmVersion(source.version ? source.spec : source.name, source.range);
-			return targetVersion !== installedVersion;
+			return gt(targetVersion, installedVersion);
 		} catch {
 			return false;
 		}
@@ -1490,7 +1480,7 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(packageJsonPath)) return undefined;
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { version?: string };
+			const pkg = JSON.parse(stripBom(content)) as { version?: string };
 			return pkg.version;
 		} catch {
 			return undefined;
@@ -1833,14 +1823,21 @@ export class DefaultPackageManager implements PackageManager {
 			this.ensureGitIgnore(gitRoot);
 		}
 		mkdirSync(dirname(targetDir), { recursive: true });
+		rmSync(this.getGitUpdateMarkerPath(targetDir), { force: true });
 
-		await this.runCommand("git", ["clone", source.repo, targetDir]);
-		if (source.ref) {
-			await this.runCommand("git", ["checkout", source.ref], { cwd: targetDir });
-		}
-		const packageJsonPath = join(targetDir, "package.json");
-		if (existsSync(packageJsonPath)) {
-			await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
+		try {
+			await this.runCommand("git", ["clone", source.repo, targetDir]);
+			if (source.ref) {
+				await this.runCommand("git", ["checkout", source.ref], { cwd: targetDir });
+			}
+			const packageJsonPath = join(targetDir, "package.json");
+			if (existsSync(packageJsonPath)) {
+				await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
+			}
+		} catch (error) {
+			rmSync(targetDir, { recursive: true, force: true });
+			this.pruneEmptyGitParents(targetDir, gitRoot);
+			throw error;
 		}
 	}
 
@@ -1860,6 +1857,57 @@ export class DefaultPackageManager implements PackageManager {
 		await this.ensureGitRef(targetDir, target.fetchArgs, target.ref);
 	}
 
+	private hasMissingGitDependencies(targetDir: string): boolean {
+		const packageJsonPath = join(targetDir, "package.json");
+		if (!existsSync(packageJsonPath)) return false;
+
+		try {
+			const manifest = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8"))) as { dependencies?: unknown };
+			if (
+				!manifest.dependencies ||
+				typeof manifest.dependencies !== "object" ||
+				Array.isArray(manifest.dependencies)
+			) {
+				return false;
+			}
+
+			const nodeModulesDir = resolve(targetDir, "node_modules");
+			return Object.keys(manifest.dependencies).some((name) => {
+				const dependencyPath = resolve(nodeModulesDir, name);
+				if (!dependencyPath.startsWith(`${nodeModulesDir}${sep}`)) return false;
+				return !existsSync(dependencyPath);
+			});
+		} catch {
+			return false;
+		}
+	}
+
+	private async repairMissingGitDependencies(targetDir: string): Promise<void> {
+		if (!this.hasMissingGitDependencies(targetDir)) return;
+		await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
+	}
+
+	private getGitUpdateMarkerPath(targetDir: string): string {
+		return join(dirname(targetDir), `.${basename(targetDir)}.pi-update-incomplete`);
+	}
+
+	private async cleanAndInstallGitDependencies(targetDir: string, markerPath: string): Promise<void> {
+		// Clean untracked files (extensions should be pristine). If this fails after
+		// deleting dependencies, repair them so the existing extension still loads.
+		try {
+			await this.runCommand("git", ["clean", "-fdx"], { cwd: targetDir });
+		} catch (error) {
+			await this.repairMissingGitDependencies(targetDir).catch(() => {});
+			throw error;
+		}
+
+		const packageJsonPath = join(targetDir, "package.json");
+		if (existsSync(packageJsonPath)) {
+			await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
+		}
+		rmSync(markerPath, { force: true });
+	}
+
 	private async ensureGitRef(targetDir: string, fetchArgs: string[], ref: string): Promise<void> {
 		// Fetch only the ref we will reset to, avoiding unrelated branch/tag noise.
 		await this.runCommand("git", fetchArgs, { cwd: targetDir });
@@ -1873,19 +1921,19 @@ export class DefaultPackageManager implements PackageManager {
 			cwd: targetDir,
 			timeoutMs: NETWORK_TIMEOUT_MS,
 		});
+		const markerPath = this.getGitUpdateMarkerPath(targetDir);
 		if (localHead.trim() === targetHead.trim()) {
+			if (existsSync(markerPath)) {
+				await this.cleanAndInstallGitDependencies(targetDir, markerPath);
+			} else {
+				await this.repairMissingGitDependencies(targetDir);
+			}
 			return;
 		}
 
+		writeFileSync(markerPath, "", "utf-8");
 		await this.runCommand("git", ["reset", "--hard", commitRef], { cwd: targetDir });
-
-		// Clean untracked files (extensions should be pristine)
-		await this.runCommand("git", ["clean", "-fdx"], { cwd: targetDir });
-
-		const packageJsonPath = join(targetDir, "package.json");
-		if (existsSync(packageJsonPath)) {
-			await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
-		}
+		await this.cleanAndInstallGitDependencies(targetDir, markerPath);
 	}
 
 	private async refreshTemporaryGitSource(source: GitSource, sourceStr: string): Promise<void> {
@@ -1903,8 +1951,8 @@ export class DefaultPackageManager implements PackageManager {
 
 	private async removeGit(source: GitSource, scope: SourceScope): Promise<void> {
 		const targetDir = this.getGitInstallPath(source, scope);
-		if (!existsSync(targetDir)) return;
 		rmSync(targetDir, { recursive: true, force: true });
+		rmSync(this.getGitUpdateMarkerPath(targetDir), { force: true });
 		this.pruneEmptyGitParents(targetDir, this.getGitInstallRoot(scope));
 	}
 
@@ -2102,7 +2150,7 @@ export class DefaultPackageManager implements PackageManager {
 			return true;
 		}
 
-		const manifest = this.readPiManifest(packageRoot);
+		const manifest = readPiManifest(join(packageRoot, "package.json"));
 		if (manifest) {
 			for (const resourceType of RESOURCE_TYPES) {
 				const entries = manifest[resourceType as keyof PiManifest];
@@ -2138,7 +2186,7 @@ export class DefaultPackageManager implements PackageManager {
 		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
 	): void {
-		const manifest = this.readPiManifest(packageRoot);
+		const manifest = readPiManifest(join(packageRoot, "package.json"));
 		const entries = manifest?.[resourceType as keyof PiManifest];
 		if (entries) {
 			this.addManifestEntries(entries, packageRoot, resourceType, target, metadata);
@@ -2207,7 +2255,7 @@ export class DefaultPackageManager implements PackageManager {
 		packageRoot: string,
 		resourceType: ResourceType,
 	): { allFiles: string[]; enabledByManifest: Set<string> } {
-		const manifest = this.readPiManifest(packageRoot);
+		const manifest = readPiManifest(join(packageRoot, "package.json"));
 		const entries = manifest?.[resourceType as keyof PiManifest];
 		if (entries && entries.length > 0) {
 			const allFiles = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
@@ -2223,21 +2271,6 @@ export class DefaultPackageManager implements PackageManager {
 		}
 		const allFiles = collectResourceFiles(conventionDir, resourceType);
 		return { allFiles, enabledByManifest: new Set(allFiles) };
-	}
-
-	private readPiManifest(packageRoot: string): PiManifest | null {
-		const packageJsonPath = join(packageRoot, "package.json");
-		if (!existsSync(packageJsonPath)) {
-			return null;
-		}
-
-		try {
-			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { pi?: PiManifest };
-			return pkg.pi ?? null;
-		} catch {
-			return null;
-		}
 	}
 
 	private addManifestEntries(

@@ -23,4 +23,4 @@
 - 改动: `piConfig.name: "omega"`, `piConfig.configDir: ".omega"`, `bin: {"omega": "dist/cli.js"}`
 - 原因: OMEGA 使用独立配置目录，避免与 pi 配置混用；`omega` 为用户启动命令
 - 上游同步风险: 低（仅 JSON 字段，上游极少改动）
-- 上次验证: 2026-07-18 @ v0.80.10
+- 上次验证: 2026-08-22 @ v0.84.2（upstream c49906ec7）

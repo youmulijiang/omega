@@ -8,3 +8,6 @@
 - `/report` slash command for pentest report generation
 - Security-specific system prompt
 - Dangerous operation permission gate
+
+### Changed
+- Synced upstream Pi through commit `c49906ec7` (post-v0.84.2)
