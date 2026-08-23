@@ -1,0 +1,11 @@
+{
+  "collapseChangelog": true,
+  "packages": [
+    {
+      "source": "npm:pi-mcp-adapter@2.27.0",
+      "autoload": false,
+      "extensions": ["-index.ts"],
+      "skills": ["!skills/**"]
+    }
+  ]
+}
