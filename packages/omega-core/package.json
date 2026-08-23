@@ -11,7 +11,11 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@narumitw/pi-tui-kit": "0.56.0"
   },
   "devDependencies": {
     "shx": "0.4.0",
