@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "path";
 import { registerPlanMode } from "../plan-mode/index.ts";
 import { initializeOmegaWorkspace } from "./init.ts";
+import { registerOmegaCommand } from "./register.ts";
 import { generateReport } from "./report.ts";
 
 /**
@@ -15,7 +16,7 @@ import { generateReport } from "./report.ts";
 export function registerCommands(pi: ExtensionAPI): void {
 	registerPlanMode(pi);
 
-	pi.registerCommand("init", {
+	registerOmegaCommand(pi, "init", {
 		description: "初始化当前工作目录的 .omega/agent 配置",
 		handler: async (_args, ctx) => {
 			try {
@@ -33,7 +34,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("report", {
+	registerOmegaCommand(pi, "report", {
 		description: "将当前会话整理为 Markdown 渗透测试报告",
 		handler: async (args, ctx) => {
 			try {

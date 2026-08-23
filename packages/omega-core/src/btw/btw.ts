@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { BorderedLoader, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defineMenu, type MenuContext, type RunMenuResult, runMenu } from "@narumitw/pi-tui-kit";
+import { registerOmegaCommand } from "../commands/register.ts";
 import {
 	type BtwBringToMainSegment,
 	type BtwBringToMainSummary,
@@ -232,7 +233,7 @@ export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependen
 				title: state.title ?? "Untitled side thread",
 				questionCount: state.thread.turns.length,
 			}));
-	pi.registerCommand("btw", {
+	registerOmegaCommand(pi, "btw", {
 		description: "Ask a quick side question without adding it to the main conversation",
 		handler: async (args, ctx) => {
 			const question = args.trim();

@@ -1,6 +1,7 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import { registerOmegaCommand } from "../commands/register.ts";
 import {
 	getProjectMcpConfigPath,
 	parseMcpConfig,
@@ -161,7 +162,7 @@ export function registerMcp(pi: ExtensionAPI): void {
 		cwd = undefined;
 	});
 
-	pi.registerCommand("mcp", {
+	registerOmegaCommand(pi, "mcp", {
 		description: "Configure MCP servers and inspect their tools",
 		getArgumentCompletions: (prefix) =>
 			["status", "reload", "tools"]

@@ -15,6 +15,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerOmegaCommand } from "../commands/register.ts";
 import { extractPlanSteps } from "./planner.ts";
 import { getCompletionStats, markCompletedSteps } from "./progress.ts";
 import { checkCommand } from "./safety.ts";
@@ -92,12 +93,12 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- Commands ---
 
-	pi.registerCommand("plan", {
+	registerOmegaCommand(pi, "plan", {
 		description: "Toggle plan mode (read-only exploration)",
 		handler: async (_args, ctx) => togglePlanMode(ctx),
 	});
 
-	pi.registerCommand("plan:status", {
+	registerOmegaCommand(pi, "plan:status", {
 		description: "Show current plan and progress",
 		handler: async (_args, ctx) => {
 			if (steps.length === 0) {
