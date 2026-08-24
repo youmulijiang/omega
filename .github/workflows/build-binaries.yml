@@ -91,12 +91,12 @@ jobs:
           cd packages/coding-agent/binaries
 
           binary_assets=(
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
+            omega-darwin-arm64.tar.gz
+            omega-darwin-x64.tar.gz
+            omega-linux-x64.tar.gz
+            omega-linux-arm64.tar.gz
+            omega-windows-x64.zip
+            omega-windows-arm64.zip
           )
 
           for asset in "${binary_assets[@]}"; do
@@ -109,12 +109,12 @@ jobs:
           source_asset="pi-${VERSION}-source.tar.gz"
           release_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
+            omega-darwin-arm64.tar.gz
+            omega-darwin-x64.tar.gz
+            omega-linux-x64.tar.gz
+            omega-linux-arm64.tar.gz
+            omega-windows-x64.zip
+            omega-windows-arm64.zip
             pi-coding-agent-install-package.json
             pi-coding-agent-install-package-lock.json
           )
@@ -154,12 +154,12 @@ jobs:
           source_asset="pi-${VERSION}-source.tar.gz"
           expected_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
+            omega-darwin-arm64.tar.gz
+            omega-darwin-x64.tar.gz
+            omega-linux-x64.tar.gz
+            omega-linux-arm64.tar.gz
+            omega-windows-x64.zip
+            omega-windows-arm64.zip
             pi-coding-agent-install-package.json
             pi-coding-agent-install-package-lock.json
             SHA256SUMS
@@ -184,12 +184,12 @@ jobs:
           source_asset="pi-${VERSION}-source.tar.gz"
           release_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
+            omega-darwin-arm64.tar.gz
+            omega-darwin-x64.tar.gz
+            omega-linux-x64.tar.gz
+            omega-linux-arm64.tar.gz
+            omega-windows-x64.zip
+            omega-windows-arm64.zip
             pi-coding-agent-install-package.json
             pi-coding-agent-install-package-lock.json
             SHA256SUMS
