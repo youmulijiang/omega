@@ -37,6 +37,7 @@ out.jsonl
 pi-*.html
 out.html
 packages/coding-agent/binaries/
+out/
 todo.md
 plans/
 !docs/superpowers/plans/
