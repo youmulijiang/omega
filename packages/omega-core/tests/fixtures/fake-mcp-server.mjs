@@ -1,6 +1,14 @@
 import { createInterface } from "node:readline";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const input = createInterface({ input: process.stdin });
+const restartMarker = process.env.OMEGA_MCP_RESTART_MARKER;
+const launchCounter = process.env.OMEGA_MCP_LAUNCH_COUNTER;
+
+if (launchCounter) {
+	const launches = existsSync(launchCounter) ? Number(readFileSync(launchCounter, "utf8")) : 0;
+	writeFileSync(launchCounter, String(launches + 1));
+}
 
 function respond(id, result) {
 	process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
@@ -18,7 +26,12 @@ input.on("line", line => {
 		respond(message.id, {
 			tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object" } }],
 		});
+		if (restartMarker && !existsSync(restartMarker)) {
+			writeFileSync(restartMarker, "restart once");
+			setTimeout(() => process.exit(0), 20);
+		}
 	} else if (message.method === "tools/call") {
+		if (message.params.name === "hang") return;
 		respond(message.id, {
 			content: [{ type: "text", text: `echo:${message.params.arguments.text}` }],
 		});

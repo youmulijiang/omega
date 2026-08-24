@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { McpConfigFile, McpServerBase, McpServerConfig } from "./native-types.ts";
+import type { McpConfigFile, McpReconnectOptions, McpServerBase, McpServerConfig } from "./native-types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -11,13 +11,42 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 	return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
 }
 
+function optionalNonNegativeNumber(value: unknown, field: string): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+		throw new Error(`${field} must be a non-negative number`);
+	}
+	return value;
+}
+
+function parseReconnect(name: string, value: unknown): McpReconnectOptions | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) throw new Error(`MCP server "${name}" reconnect must be an object`);
+	if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+		throw new Error(`MCP server "${name}" reconnect.enabled must be a boolean`);
+	}
+	const maxRetries = optionalNonNegativeNumber(value.maxRetries, `MCP server "${name}" reconnect.maxRetries`);
+	const initialDelay = optionalNonNegativeNumber(value.initialDelay, `MCP server "${name}" reconnect.initialDelay`);
+	const maxDelay = optionalNonNegativeNumber(value.maxDelay, `MCP server "${name}" reconnect.maxDelay`);
+	const factor = optionalNonNegativeNumber(value.factor, `MCP server "${name}" reconnect.factor`);
+	return {
+		...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
+		...(maxRetries === undefined ? {} : { maxRetries: Math.trunc(maxRetries) }),
+		...(initialDelay === undefined ? {} : { initialDelay }),
+		...(maxDelay === undefined ? {} : { maxDelay }),
+		...(factor === undefined ? {} : { factor }),
+	};
+}
+
 function parseServer(name: string, value: unknown): McpServerConfig {
 	if (!isRecord(value)) throw new Error(`MCP server "${name}" must be an object`);
+	const timeout = optionalNonNegativeNumber(value.timeout, `MCP server "${name}" timeout`);
 	const common: McpServerBase = {
 		...(typeof value.disabled === "boolean" ? { disabled: value.disabled } : {}),
 		...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
-		...(typeof value.timeout === "number" ? { timeout: value.timeout } : {}),
+		...(timeout === undefined ? {} : { timeout }),
 		...(value.auth === "oauth" || value.auth === "none" ? { auth: value.auth } : {}),
+		...(value.reconnect === undefined ? {} : { reconnect: parseReconnect(name, value.reconnect) }),
 	};
 
 	if (typeof value.command === "string" && value.command.trim()) {

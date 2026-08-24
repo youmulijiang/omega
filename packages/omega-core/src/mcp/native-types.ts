@@ -1,13 +1,21 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+
+export interface McpReconnectOptions {
+	enabled?: boolean;
+	maxRetries?: number;
+	initialDelay?: number;
+	maxDelay?: number;
+	factor?: number;
+}
 
 export interface McpServerBase {
 	disabled?: boolean;
 	enabled?: boolean;
 	timeout?: number;
 	auth?: "oauth" | "none";
+	reconnect?: McpReconnectOptions;
 }
 
 export interface McpStdioServer extends McpServerBase {
@@ -37,10 +45,12 @@ export interface McpServerState {
 	config: McpServerConfig;
 	status: McpConnectionStatus;
 	tools: Tool[];
+	toolSource?: "live" | "cache";
+	reconnectAttempts?: number;
 	error?: string;
 }
 
 export interface McpConnection {
 	client: Client;
-	transport: StdioClientTransport | StreamableHTTPClientTransport;
+	transport: Transport;
 }

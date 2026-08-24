@@ -47,6 +47,26 @@ describe("Omega MCP config", () => {
 		);
 	});
 
+	it("parses timeout and reconnect policy", () => {
+		const config = parseMcpConfig({
+			mcpServers: {
+				remote: {
+					url: "https://example.com/mcp",
+					timeout: 0,
+					reconnect: { enabled: true, maxRetries: 3, initialDelay: 100, maxDelay: 2_000, factor: 2 },
+				},
+			},
+		});
+
+		expect(config.mcpServers.remote).toMatchObject({
+			timeout: 0,
+			reconnect: { enabled: true, maxRetries: 3, initialDelay: 100, maxDelay: 2_000, factor: 2 },
+		});
+		expect(() => parseMcpConfig({ mcpServers: { broken: { command: "node", timeout: -1 } } })).toThrow(
+			"timeout must be a non-negative number",
+		);
+	});
+
 	it("expands the environment formats accepted by pi-mcp-adapter", () => {
 		expect(interpolateEnvVars("${TOKEN}:$env:TOKEN:{env:TOKEN}", { TOKEN: "secret" })).toBe(
 			"secret:secret:secret",

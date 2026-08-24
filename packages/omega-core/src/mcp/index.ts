@@ -11,6 +11,13 @@ import {
 } from "./native-config.ts";
 import { OmegaMcpManager } from "./native-manager.ts";
 import type { McpHttpServer, McpServerState, McpStdioServer } from "./native-types.ts";
+import {
+	createSmitheryConnection,
+	findSmitheryConnection,
+	resolveSmitheryNamespace,
+	smitheryProxyConfig,
+} from "./smithery-connect.ts";
+import { type SmitherySearchResult, searchSmitheryRegistry, smitheryConfigName } from "./smithery-registry.ts";
 
 type McpAction = "status" | "list_tools" | "call" | "reconnect";
 
@@ -18,7 +25,12 @@ function statusText(states: McpServerState[]): string {
 	if (states.length === 0) return "No MCP servers configured. Run /mcp to add one.";
 	return states
 		.map((state) => {
-			const detail = state.status === "connected" ? `${state.tools.length} tools` : state.error;
+			const detail =
+				state.status === "connected"
+					? `${state.tools.length} tools`
+					: state.toolSource === "cache"
+						? `${state.tools.length} cached tools${state.error ? `; ${state.error}` : ""}`
+						: state.error;
 			return `- ${state.name}: ${state.status}${detail ? ` (${detail})` : ""}`;
 		})
 		.join("\n");
@@ -77,6 +89,76 @@ async function addStdioServer(ctx: ExtensionCommandContext, manager: OmegaMcpMan
 	ctx.ui.notify(`Saved MCP server "${name}" to ${getProjectMcpConfigPath(ctx.cwd)}`, "info");
 }
 
+function smitheryChoice(result: SmitherySearchResult): string {
+	return `${result.verified ? "✓ " : ""}${result.displayName} — ${result.qualifiedName} (${result.useCount} uses)`;
+}
+
+async function addSmitheryServer(ctx: ExtensionCommandContext, manager: OmegaMcpManager): Promise<void> {
+	const apiKey = process.env.SMITHERY_API_KEY?.trim();
+	if (!apiKey) {
+		ctx.ui.notify("Set SMITHERY_API_KEY before using Smithery integration", "error");
+		return;
+	}
+	const query = (await ctx.ui.input("Search Smithery MCP registry"))?.trim();
+	if (!query) return;
+	ctx.ui.setWorkingMessage("Searching Smithery...");
+	let results: SmitherySearchResult[];
+	try {
+		results = await searchSmitheryRegistry(query, { apiKey, signal: ctx.signal });
+	} finally {
+		ctx.ui.setWorkingMessage();
+	}
+	if (results.length === 0) {
+		ctx.ui.notify("No Smithery MCP servers found", "warning");
+		return;
+	}
+	const choices = results.map(smitheryChoice);
+	const selectedLabel = await ctx.ui.select("Select a Smithery MCP server", choices);
+	const selected = results[choices.indexOf(selectedLabel ?? "")];
+	if (!selected) return;
+
+	let config = selected.suggestedConfig;
+	let authorizationUrl: string | undefined;
+	if (selected.mcpUrl && (await ctx.ui.confirm("Use Smithery Connect?", selected.description))) {
+		ctx.ui.setWorkingMessage("Creating Smithery connection...");
+		try {
+			const namespace = await resolveSmitheryNamespace(apiKey, { signal: ctx.signal });
+			const connection =
+				(await findSmitheryConnection(apiKey, namespace, selected.mcpUrl, { signal: ctx.signal })) ??
+				(await createSmitheryConnection(apiKey, namespace, selected.mcpUrl, selected.displayName, {
+					signal: ctx.signal,
+				}));
+			if (connection.status?.state === "input_required") {
+				throw new Error(
+					`Smithery requires additional configuration: ${connection.status.missing?.join(", ") || "open Smithery to configure the connection"}`,
+				);
+			}
+			if (connection.status?.state === "error") {
+				throw new Error(connection.status.message ?? "Smithery connection failed");
+			}
+			if (connection.status?.state === "auth_required") {
+				authorizationUrl = connection.status.authorizationUrl;
+			}
+			config = smitheryProxyConfig(namespace, connection.connectionId);
+		} finally {
+			ctx.ui.setWorkingMessage();
+		}
+	}
+
+	const name = smitheryConfigName(selected.qualifiedName);
+	updateProjectServer(ctx.cwd, name, config);
+	if (authorizationUrl) {
+		await manager.reload(false);
+		ctx.ui.notify(
+			`Saved Smithery server "${name}". Complete authorization, then run /mcp reconnect:\n${authorizationUrl}`,
+			"warning",
+		);
+		return;
+	}
+	await manager.reload();
+	ctx.ui.notify(`Added Smithery server "${name}"`, "info");
+}
+
 async function manageServer(ctx: ExtensionCommandContext, manager: OmegaMcpManager): Promise<void> {
 	const states = manager.getStates();
 	if (states.length === 0) {
@@ -121,12 +203,14 @@ async function showMcpPanel(ctx: ExtensionCommandContext, manager: OmegaMcpManag
 	if (!ctx.hasUI) return;
 	const action = await ctx.ui.select(`MCP\n${statusText(manager.getStates())}`, [
 		"Manage server",
+		"Add from Smithery",
 		"Add HTTP server",
 		"Add stdio server",
 		"Edit .mcp.json",
 		"Reload",
 	]);
 	if (action === "Manage server") await manageServer(ctx, manager);
+	else if (action === "Add from Smithery") await addSmitheryServer(ctx, manager);
 	else if (action === "Add HTTP server") await addHttpServer(ctx, manager);
 	else if (action === "Add stdio server") await addStdioServer(ctx, manager);
 	else if (action === "Edit .mcp.json") {
@@ -165,7 +249,7 @@ export function registerMcp(pi: ExtensionAPI): void {
 	registerOmegaCommand(pi, "mcp", {
 		description: "Configure MCP servers and inspect their tools",
 		getArgumentCompletions: (prefix) =>
-			["status", "reload", "tools"]
+			["status", "reload", "tools", "smithery"]
 				.filter((value) => value.startsWith(prefix.trim()))
 				.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
@@ -174,6 +258,7 @@ export function registerMcp(pi: ExtensionAPI): void {
 				const command = args.trim();
 				if (!command) await showMcpPanel(ctx, active);
 				else if (command === "status") ctx.ui.notify(statusText(active.getStates()), "info");
+				else if (command === "smithery") await addSmitheryServer(ctx, active);
 				else if (command === "reload") {
 					await active.reload();
 					ctx.ui.notify("MCP configuration reloaded", "info");
@@ -185,7 +270,7 @@ export function registerMcp(pi: ExtensionAPI): void {
 							: "No MCP tools available",
 						"info",
 					);
-				} else ctx.ui.notify("Usage: /mcp [status|reload|tools]", "warning");
+				} else ctx.ui.notify("Usage: /mcp [status|reload|tools|smithery]", "warning");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
