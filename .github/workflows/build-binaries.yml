@@ -61,6 +61,7 @@ jobs:
           ./scripts/create-source-archive.sh \
             --version "${VERSION}" \
             --ref HEAD \
+            --version-package packages/omega-core/package.json \
             --out "release-assets/pi-${VERSION}-source.tar.gz"
 
       - name: Build binaries from source archive

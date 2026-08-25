@@ -3,17 +3,19 @@
 #
 # Usage:
 #   npm run hydrate:model-data
-#   ./scripts/create-source-archive.sh --version <version> --ref <git-ref> --out <archive.tar.gz>
+#   ./scripts/create-source-archive.sh --version <version> --ref <git-ref> \
+#     [--version-package <package.json>] --out <archive.tar.gz>
 
 set -euo pipefail
 
 version=""
 source_ref="HEAD"
+version_package="packages/coding-agent/package.json"
 output=""
 invocation_dir="$PWD"
 
 usage() {
-    echo "Usage: $0 --version <version> [--ref <git-ref>] --out <archive.tar.gz>"
+    echo "Usage: $0 --version <version> [--ref <git-ref>] [--version-package <package.json>] --out <archive.tar.gz>"
 }
 
 require_value() {
@@ -34,6 +36,11 @@ while [[ $# -gt 0 ]]; do
         --ref)
             require_value "$@"
             source_ref="$2"
+            shift 2
+            ;;
+        --version-package)
+            require_value "$@"
+            version_package="$2"
             shift 2
             ;;
         --out)
@@ -67,7 +74,7 @@ cd "$repo_root"
 
 commit="$(git rev-parse --verify --end-of-options "${source_ref}^{commit}")"
 
-package_version="$(git show "${commit}:packages/coding-agent/package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+package_version="$(git show "${commit}:${version_package}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
 if [[ "$package_version" != "$version" ]]; then
     echo "Version ${version} does not match package version ${package_version} at ${source_ref}" >&2
     exit 1
