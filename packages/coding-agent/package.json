@@ -8,7 +8,7 @@
 		"configDir": ".omega"
 	},
 	"bin": {
-		"omega": "dist/cli.js"
+		"pi": "dist/cli.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
