@@ -1,7 +1,7 @@
 // Core session management
 
+export { restoreSandboxEnv } from "./bun/restore-sandbox-env.ts";
 export { type Args, parseArgs } from "./cli/args.ts";
-
 // Config paths
 export {
 	CONFIG_DIR_NAME,

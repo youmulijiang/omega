@@ -1,4 +1,5 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 
 /**
  * 渲染 OMEGA 的 TUI Header（ASCII art + tagline）。
@@ -35,8 +36,8 @@ function renderOmegaHeader(theme: Theme, _width: number): string[] {
  *
  * @param pi - Pi 扩展 API。
  */
-export function setupHeader(pi: ExtensionAPI): void {
-	pi.on("session_start", async (_event, ctx) => {
+export function setupHeader(omega: OmegaAPI): void {
+	omega.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 
 		ctx.ui.setHeader((_tui, theme) => ({

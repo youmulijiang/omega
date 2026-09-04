@@ -1,6 +1,7 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
+import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
 import {
 	getProjectMcpConfigPath,
@@ -223,7 +224,7 @@ async function showMcpPanel(ctx: ExtensionCommandContext, manager: OmegaMcpManag
 	} else if (action === "Reload") await manager.reload();
 }
 
-export function registerMcp(pi: ExtensionAPI): void {
+export function registerMcp(omega: OmegaAPI): void {
 	let manager: OmegaMcpManager | undefined;
 	let cwd: string | undefined;
 	const getManager = async (currentCwd: string): Promise<OmegaMcpManager> => {
@@ -236,17 +237,17 @@ export function registerMcp(pi: ExtensionAPI): void {
 		return manager;
 	};
 
-	pi.on("session_start", async (_event, ctx) => {
+	omega.on("session_start", async (_event, ctx) => {
 		await getManager(ctx.cwd);
 		if (ctx.hasUI) ctx.ui.setStatus("omega-mcp", `MCP ${manager?.listTools().length ?? 0} tools`);
 	});
-	pi.on("session_shutdown", async () => {
+	omega.on("session_shutdown", async () => {
 		await manager?.close();
 		manager = undefined;
 		cwd = undefined;
 	});
 
-	registerOmegaCommand(pi, "mcp", {
+	registerOmegaCommand(omega, "mcp", {
 		description: "Configure MCP servers and inspect their tools",
 		getArgumentCompletions: (prefix) =>
 			["status", "reload", "tools", "smithery"]
@@ -277,7 +278,7 @@ export function registerMcp(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerTool({
+	omega.registerTool({
 		name: "mcp",
 		label: "MCP",
 		description: "List configured MCP servers/tools, reconnect a server, or call an MCP tool.",

@@ -1,9 +1,9 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 
-type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
+type CommandOptions = Parameters<OmegaAPI["registerCommand"]>[1];
 
 /** Register an Omega-owned command without an autocomplete source tag. */
-export function registerOmegaCommand(pi: ExtensionAPI, name: string, options: CommandOptions): void {
+export function registerOmegaCommand(omega: OmegaAPI, name: string, options: CommandOptions): void {
 	const omegaOptions = { ...options, showSourceTag: false };
-	pi.registerCommand(name, omegaOptions);
+	omega.registerCommand(name, omegaOptions);
 }

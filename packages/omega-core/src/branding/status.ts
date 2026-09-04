@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 
 /**
  * OMEGA 在 TUI 状态栏中展示的阶段。
@@ -35,16 +35,16 @@ function modeLabel(mode: OmegaMode): string {
  *
  * @param pi - Pi 扩展 API。
  */
-export function setupStatus(pi: ExtensionAPI): void {
-	pi.on("session_start", async (_event, ctx) => {
+export function setupStatus(omega: OmegaAPI): void {
+	omega.on("session_start", async (_event, ctx) => {
 		ctx.ui.setStatus(STATUS_KEY, modeLabel("idle"));
 	});
 
-	pi.on("turn_start", async (_event, ctx) => {
+	omega.on("turn_start", async (_event, ctx) => {
 		ctx.ui.setStatus(STATUS_KEY, modeLabel("recon"));
 	});
 
-	pi.on("turn_end", async (_event, ctx) => {
+	omega.on("turn_end", async (_event, ctx) => {
 		ctx.ui.setStatus(STATUS_KEY, modeLabel("idle"));
 	});
 }

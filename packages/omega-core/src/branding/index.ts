@@ -1,13 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 import { setupHeader } from "./header.ts";
 import { setupStatus } from "./status.ts";
 
-/**
- * 注册 OMEGA 的 UI 品牌化能力（Header / Status 等）。
- *
- * @param pi - Pi 扩展 API。
- */
-export function registerBranding(pi: ExtensionAPI): void {
-	setupHeader(pi);
-	setupStatus(pi);
+export function registerBranding(omega: OmegaAPI): void {
+	setupHeader(omega);
+	setupStatus(omega);
 }

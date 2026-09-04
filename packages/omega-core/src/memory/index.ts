@@ -37,11 +37,11 @@ import { type Message, StringEnum, Type } from "@earendil-works/pi-ai";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
-	type ExtensionAPI,
 	type ExtensionContext,
 	type SessionEntry,
 	serializeConversation,
 } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 
 // ---------------------------------------------------------------------------
 // Paths (mutable for testing via _setBaseDir / _resetBaseDir)
@@ -1437,9 +1437,9 @@ export function _resetMemorySnapshot() {
 // Extension entry point
 // ---------------------------------------------------------------------------
 
-export default function (pi: ExtensionAPI) {
+export default function (omega: OmegaAPI) {
 	// --- session_start: detect qmd, auto-setup collection ---
-	pi.on("session_start", async (_event, ctx) => {
+	omega.on("session_start", async (_event, ctx) => {
 		exitSummaryReason = null;
 		if (terminalInputUnsubscribe) {
 			terminalInputUnsubscribe();
@@ -1476,7 +1476,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- session_shutdown: write exit summary + clean up timer ---
-	pi.on("session_shutdown", async (event, ctx) => {
+	omega.on("session_shutdown", async (event, ctx) => {
 		const shutdownReason = (event as { reason?: string }).reason;
 
 		if (terminalInputUnsubscribe) {
@@ -1543,7 +1543,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- input: detect /quit for shutdown summary ---
-	pi.on("input", async (event, _ctx) => {
+	omega.on("input", async (event, _ctx) => {
 		if (event.source !== "extension" && event.text.trim() === "/quit") {
 			exitSummaryReason = "slash-quit";
 		}
@@ -1551,7 +1551,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- Inject memory context before every agent turn ---
-	pi.on("before_agent_start", async (event, _ctx) => {
+	omega.on("before_agent_start", async (event, _ctx) => {
 		const mode = getSnapshotMode();
 
 		let memoryContext: string;
@@ -1598,7 +1598,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- Pre-compaction: auto-capture session handoff ---
-	pi.on("session_before_compact", async (_event, ctx) => {
+	omega.on("session_before_compact", async (_event, ctx) => {
 		ensureDirs();
 		const sid = shortSessionId(ctx.sessionManager.getSessionId());
 		const ts = nowTimestamp();
@@ -1646,7 +1646,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_write tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_write",
 		label: "Memory Write",
 		description: [
@@ -1767,7 +1767,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- scratchpad tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "scratchpad",
 		label: "Scratchpad",
 		description: [
@@ -1945,7 +1945,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_read tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_read",
 		label: "Memory Read",
 		description: [
@@ -2057,7 +2057,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_forget tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_forget",
 		label: "Memory Forget",
 		description: [
@@ -2164,7 +2164,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_restore tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_restore",
 		label: "Memory Restore",
 		description: [
@@ -2227,7 +2227,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_search tool ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_search",
 		label: "Memory Search",
 		description:
@@ -2362,7 +2362,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- memory_status tool (doctor) ---
-	pi.registerTool({
+	omega.registerTool({
 		name: "memory_status",
 		label: "Memory Status",
 		description:

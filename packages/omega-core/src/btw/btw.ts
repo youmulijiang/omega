@@ -5,8 +5,9 @@ import {
 	type Model,
 	type ProviderHeaders,
 } from "@earendil-works/pi-ai";
-import { BorderedLoader, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defineMenu, type MenuContext, type RunMenuResult, runMenu } from "@narumitw/pi-tui-kit";
+import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
 import {
 	type BtwBringToMainSegment,
@@ -202,7 +203,7 @@ function notifySafely(
 
 export interface BtwExtensionDependencies {
 	showCommandMenu?: (
-		pi: ExtensionAPI,
+		omega: OmegaAPI,
 		ctx: ExtensionCommandContext,
 		resumeThreads: readonly BtwResumeThreadSummary[],
 	) => Promise<BtwCommandMenuResult>;
@@ -213,7 +214,7 @@ export interface BtwExtensionDependencies {
 	runFullscreen?: RunBtwFullscreen;
 }
 
-export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependencies = {}): void {
+export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependencies = {}): void {
 	const showCommandMenu = dependencies.showCommandMenu ?? showCommandMenuForBtw;
 	const pickEntry = dependencies.pickMainEntry ?? pickMainEntry;
 	const loadSettings = dependencies.loadSettings ?? loadSettingsForCommand;
@@ -233,7 +234,7 @@ export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependen
 				title: state.title ?? "Untitled side thread",
 				questionCount: state.thread.turns.length,
 			}));
-	registerOmegaCommand(pi, "btw", {
+	registerOmegaCommand(omega, "btw", {
 		description: "Ask a quick side question without adding it to the main conversation",
 		handler: async (args, ctx) => {
 			const question = args.trim();
@@ -246,11 +247,11 @@ export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependen
 			let selectedConversationContext: string | undefined;
 			if (!question) {
 				while (true) {
-					menuResult = await showCommandMenu(pi, ctx, listResumeThreads());
+					menuResult = await showCommandMenu(omega, ctx, listResumeThreads());
 					if (menuResult === "closed") return;
 					if (menuResult !== "tree") break;
 
-					const treeResult = await pickEntry(pi, ctx);
+					const treeResult = await pickEntry(omega, ctx);
 					if (treeResult.kind === "closed") return;
 					if (treeResult.kind === "back") continue;
 					try {
@@ -301,7 +302,7 @@ export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependen
 								selectedConversationContext ??
 									buildConversationContext(fullscreenCtx.sessionManager.getBranch()),
 							),
-							thinkingLevel: settings.thinkingLevel ?? pi.getThinkingLevel(),
+							thinkingLevel: settings.thinkingLevel ?? omega.getThinkingLevel(),
 							createdAt,
 							updatedAt: createdAt,
 						};
@@ -330,13 +331,13 @@ export function registerBtw(pi: ExtensionAPI, dependencies: BtwExtensionDependen
 }
 
 async function showCommandMenuForBtw(
-	pi: ExtensionAPI,
+	omega: OmegaAPI,
 	ctx: ExtensionCommandContext,
 	resumeThreads: readonly BtwResumeThreadSummary[],
 ): Promise<BtwCommandMenuResult> {
 	const currentModel = ctx.model;
 	const availableModels = ctx.modelRegistry.getAll();
-	const currentThinkingLevel = pi.getThinkingLevel();
+	const currentThinkingLevel = omega.getThinkingLevel();
 	const loaded = await readBtwSettings();
 	const settings = loaded.kind === "loaded" ? loaded.settings : {};
 	const configured = settings.model ? parseBtwModelReference(settings.model) : undefined;

@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "omega": "./dist/cli.js"
+  },
   "main": "./dist/entry.js",
   "types": "./dist/entry.d.ts",
   "scripts": {
     "clean": "shx rm -rf dist",
-    "build": "tsgo -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js dist/bun/cli.js",
     "test": "vitest --run"
   },
   "dependencies": {

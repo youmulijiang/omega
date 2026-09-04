@@ -1,22 +1,15 @@
 import { writeFile } from "node:fs/promises";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { join } from "path";
+import type { OmegaAPI } from "../api.ts";
 import { registerPlanMode } from "../plan-mode/index.ts";
 import { initializeOmegaWorkspace } from "./init.ts";
 import { registerOmegaCommand } from "./register.ts";
 import { generateReport } from "./report.ts";
 
-/**
- * 注册 OMEGA 提供的命令，包括 `/init`、`/plan`、`/plan:status` 和 `/report`。
- *
- * `/report` 会将当前会话分支整理为 Markdown 渗透测试报告并写入当前工作目录。
- *
- * @param pi - Pi 扩展 API。
- */
-export function registerCommands(pi: ExtensionAPI): void {
-	registerPlanMode(pi);
+export function registerCommands(omega: OmegaAPI): void {
+	registerPlanMode(omega);
 
-	registerOmegaCommand(pi, "init", {
+	registerOmegaCommand(omega, "init", {
 		description: "初始化当前工作目录的 .omega/agent 配置",
 		handler: async (_args, ctx) => {
 			try {
@@ -34,7 +27,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		},
 	});
 
-	registerOmegaCommand(pi, "report", {
+	registerOmegaCommand(omega, "report", {
 		description: "将当前会话整理为 Markdown 渗透测试报告",
 		handler: async (args, ctx) => {
 			try {

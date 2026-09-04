@@ -14,7 +14,8 @@
  * - Branch-aware state via session entries
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
 import { extractPlanSteps } from "./planner.ts";
 import { getCompletionStats, markCompletedSteps } from "./progress.ts";
@@ -23,7 +24,7 @@ import type { PlanMode, PlanState, PlanStep } from "./types.ts";
 
 const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls"];
 
-export function registerPlanMode(pi: ExtensionAPI): void {
+export function registerPlanMode(omega: OmegaAPI): void {
 	let planMode: PlanMode = "normal";
 	let steps: PlanStep[] = [];
 	let toolsBeforePlanMode: string[] | undefined;
@@ -31,17 +32,17 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 	// --- Helpers ---
 
 	function persistState(): void {
-		pi.appendEntry("omega-plan", { mode: planMode, steps, toolsBeforePlanMode });
+		omega.appendEntry("omega-plan", { mode: planMode, steps, toolsBeforePlanMode });
 	}
 
 	function activatePlanTools(): void {
-		toolsBeforePlanMode ??= [...pi.getActiveTools()];
-		pi.setActiveTools(PLAN_MODE_TOOLS);
+		toolsBeforePlanMode ??= [...omega.getActiveTools()];
+		omega.setActiveTools(PLAN_MODE_TOOLS);
 	}
 
 	function restoreTools(): void {
 		if (toolsBeforePlanMode) {
-			pi.setActiveTools(toolsBeforePlanMode);
+			omega.setActiveTools(toolsBeforePlanMode);
 			toolsBeforePlanMode = undefined;
 		}
 	}
@@ -85,7 +86,7 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- CLI flag ---
 
-	pi.registerFlag("plan", {
+	omega.registerFlag("plan", {
 		description: "Start in plan mode (read-only exploration)",
 		type: "boolean",
 		default: false,
@@ -93,12 +94,12 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- Commands ---
 
-	registerOmegaCommand(pi, "plan", {
+	registerOmegaCommand(omega, "plan", {
 		description: "Toggle plan mode (read-only exploration)",
 		handler: async (_args, ctx) => togglePlanMode(ctx),
 	});
 
-	registerOmegaCommand(pi, "plan:status", {
+	registerOmegaCommand(omega, "plan:status", {
 		description: "Show current plan and progress",
 		handler: async (_args, ctx) => {
 			if (steps.length === 0) {
@@ -112,14 +113,14 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- Shortcut ---
 
-	pi.registerShortcut("ctrl+alt+p", {
+	omega.registerShortcut("ctrl+alt+p", {
 		description: "Toggle plan mode",
 		handler: async (ctx) => togglePlanMode(ctx),
 	});
 
 	// --- Tool call filter ---
 
-	pi.on("tool_call", async (event) => {
+	omega.on("tool_call", async (event) => {
 		if (planMode !== "plan") return;
 
 		// Block write/edit tools entirely
@@ -142,7 +143,7 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- Context filter: remove stale Omega plan messages when not in plan mode ---
 
-	pi.on("context", async (event) => {
+	omega.on("context", async (event) => {
 		if (planMode === "plan") return;
 		return {
 			messages: event.messages.filter((m) => {
@@ -166,7 +167,7 @@ export function registerPlanMode(pi: ExtensionAPI): void {
 
 	// --- Hidden context injection ---
 
-	pi.on("before_agent_start", async () => {
+	omega.on("before_agent_start", async () => {
 		if (planMode === "plan") {
 			return {
 				message: {
@@ -216,7 +217,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 
 	// --- Track progress during execution ---
 
-	pi.on("turn_end", async (event, ctx) => {
+	omega.on("turn_end", async (event, ctx) => {
 		if (planMode !== "execute" || steps.length === 0) return;
 		const msg = event.message;
 		if (msg.role !== "assistant" || !Array.isArray(msg.content)) return;
@@ -234,13 +235,13 @@ After completing a step, include a [DONE:n] tag in your response.`,
 
 	// --- After agent finishes: extract plan or check completion ---
 
-	pi.on("agent_end", async (event, ctx) => {
+	omega.on("agent_end", async (event, ctx) => {
 		// Check if execution is complete
 		if (planMode === "execute" && steps.length > 0) {
 			const { allDone } = getCompletionStats(steps);
 			if (allDone) {
 				const completedList = steps.map((s) => `~~${s.text}~~`).join("\n");
-				pi.sendMessage(
+				omega.sendMessage(
 					{
 						customType: "omega-plan-complete",
 						content: `**Plan Complete!** ✓\n\n${completedList}`,
@@ -282,7 +283,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 		// Show plan and prompt for next action
 		if (steps.length > 0) {
 			const list = steps.map((s) => `${s.step}. ☐ ${s.text}`).join("\n");
-			pi.sendMessage(
+			omega.sendMessage(
 				{
 					customType: "omega-plan-todo-list",
 					content: `**Plan Steps (${steps.length}):**\n\n${list}`,
@@ -306,20 +307,23 @@ After completing a step, include a [DONE:n] tag in your response.`,
 
 			const execMsg =
 				steps.length > 0 ? `Execute the plan. Start with: ${steps[0].text}` : "Execute the plan you just created.";
-			pi.sendMessage({ customType: "omega-plan-execute", content: execMsg, display: true }, { triggerTurn: true });
+			omega.sendMessage(
+				{ customType: "omega-plan-execute", content: execMsg, display: true },
+				{ triggerTurn: true },
+			);
 		} else if (choice === "Refine the plan") {
 			const refinement = await ctx.ui.editor("Refine the plan:", "");
 			if (refinement?.trim()) {
-				pi.sendUserMessage(refinement.trim());
+				omega.sendUserMessage(refinement.trim());
 			}
 		}
 	});
 
 	// --- Restore state on session start/resume ---
 
-	pi.on("session_start", async (_event, ctx) => {
+	omega.on("session_start", async (_event, ctx) => {
 		// --plan flag
-		if (pi.getFlag("plan") === true) {
+		if (omega.getFlag("plan") === true) {
 			planMode = "plan";
 		}
 

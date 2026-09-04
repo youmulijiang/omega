@@ -1,12 +1,12 @@
 import {
 	copyToClipboard,
-	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type SessionEntry,
 	type SessionTreeNode,
 	TreeSelectorComponent,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, type Focusable, Key, matchesKey } from "@earendil-works/pi-tui";
+import type { OmegaAPI } from "../api.ts";
 import { showBtwCustomPreservingEditor } from "./menu.ts";
 import { sanitizeSingleLine } from "./text.ts";
 
@@ -77,7 +77,7 @@ class MainThreadTreePickerComponent implements Component, Focusable {
 }
 
 export async function pickMainEntry(
-	pi: ExtensionAPI,
+	omega: OmegaAPI,
 	ctx: ExtensionCommandContext,
 	dependencies: MainThreadTreePickerDependencies = {},
 ): Promise<MainEntryPickResult> {
@@ -161,7 +161,7 @@ export async function pickMainEntry(
 					return;
 				}
 				const persistedLabel = label === undefined ? undefined : sanitizeSingleLine(label);
-				pi.setLabel(entryId, persistedLabel);
+				omega.setLabel(entryId, persistedLabel);
 				savedLabels.set(entryId, { label: persistedLabel });
 				selector?.setViewLabel?.(entryId, persistedLabel);
 				tui.requestRender();
