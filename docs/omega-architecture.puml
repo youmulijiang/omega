@@ -1,0 +1,91 @@
+@startuml
+title OMEGA / Pi 当前运行时架构
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam linetype ortho
+skinparam defaultTextAlignment center
+
+actor "用户" as User
+
+package "OMEGA 产品层" #E8F4FF {
+  component "omega CLI\n@omega/core/bin" as OmegaCLI
+
+  package "omega-core\n业务核心 / 策略内核（Pi 扩展）" #FFF2CC {
+    component "entry.ts\nomegaExtension(pi)" as Entry
+    component "OmegaAPI Proxy\ncreateOmegaAPI(pi)" as OmegaAPI
+
+    package "能力模块" {
+      component "Branding / UI\nHeader、状态、阶段" as UI
+      component "Commands / Plan / BTW\n/init、/report、/plan、/btw" as Commands
+      component "Permissions / Scope\n目标范围与高危操作门控" as Permissions
+      component "Security Prompts\n系统提示词增强" as Prompts
+      component "Memory\n长期记忆、日志、检索工具" as Memory
+      component "MCP\n服务管理、工具发现与调用" as MCP
+      component "Subagents / Fork\n场景 Agent 编排" as Subagents
+    }
+  }
+}
+
+package "Pi 平台层（微内核 / 控制内核）" #D9EAD3 {
+  component "pi-coding-agent\nmain()、Extension Host、TUI/CLI、Session" as CodingAgent
+  component "pi-agent-core\nAgent Loop、Tool Calling、State" as AgentCore
+  component "pi-ai\n模型/Provider 统一接口" as PiAI
+  component "pi-tui\n终端渲染与交互组件" as PiTUI
+  component "protocol / client / server\nRPC 与远程通信" as Protocol
+  component "telemetry / session-backends\n遥测与会话持久化" as Infra
+}
+
+cloud "外部系统" #F3F3F3 {
+  component "LLM Providers" as LLM
+  component "MCP Servers / Smithery" as McpServers
+  component "Shell、文件系统、浏览器\n安全测试工具链" as Runtime
+}
+
+User --> OmegaCLI : 启动 omega / 输入任务
+OmegaCLI --> CodingAgent : main(args, extensionFactories)
+OmegaCLI ..> Entry : 静态注入隐藏扩展
+CodingAgent --> Entry : 提供 ExtensionAPI
+Entry --> OmegaAPI : 包装 Pi API
+
+OmegaAPI --> UI
+OmegaAPI --> Commands
+OmegaAPI --> Permissions
+OmegaAPI --> Prompts
+OmegaAPI --> Memory
+OmegaAPI --> MCP
+OmegaAPI --> Subagents
+OmegaAPI ..> CodingAgent : 事件订阅、命令/工具注册、UI 扩展
+
+CodingAgent --> AgentCore
+CodingAgent --> PiTUI
+CodingAgent --> Protocol
+CodingAgent --> Infra
+AgentCore --> PiAI
+PiAI --> LLM
+MCP --> McpServers
+AgentCore --> Runtime : 执行已注册工具
+Permissions ..> AgentCore : tool_call 前置拦截
+
+note right of CodingAgent
+  Pi 持有主控制流：
+  启动、Agent 循环、会话、工具调度、模型调用。
+end note
+
+note right of OmegaAPI
+  OmegaAPI 是 ExtensionAPI 的超集代理：
+  Pi 原方法透传，OMEGA 能力独立扩展。
+end note
+
+note bottom of Entry
+  结论：这是“Pi 微内核 + omega-core 业务核心扩展”架构。
+  omega-core 很重要，但不是取代 Pi 控制流的操作系统式“主内核”。
+end note
+
+legend bottom left
+  实线  运行时调用 / 依赖
+  虚线  注入 / 注册 / 拦截
+endlegend
+
+@enduml
