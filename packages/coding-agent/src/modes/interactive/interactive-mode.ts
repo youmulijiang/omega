@@ -743,9 +743,21 @@ export class InteractiveMode {
 		}));
 
 		// Convert extension commands to SlashCommand format
-		const builtinCommandNames = new Set(slashCommands.map((c) => c.name));
-		const extensionCommands: SlashCommand[] = this.session.extensionRunner
-			.getRegisteredCommands()
+		const registeredCommands = this.session.extensionRunner.getRegisteredCommands();
+		const builtinOverrides = new Map(
+			registeredCommands.filter((command) => command.overrideBuiltin).map((command) => [command.name, command]),
+		);
+		const resolvedBuiltinCommands = slashCommands.map((command) => {
+			const override = builtinOverrides.get(command.name);
+			if (!override) return command;
+			return {
+				name: override.invocationName,
+				description: override.description ?? command.description,
+				getArgumentCompletions: override.getArgumentCompletions,
+			};
+		});
+		const builtinCommandNames = new Set(resolvedBuiltinCommands.map((command) => command.name));
+		const extensionCommands: SlashCommand[] = registeredCommands
 			.filter((cmd) => !builtinCommandNames.has(cmd.name))
 			.map((cmd) => ({
 				name: cmd.invocationName,
@@ -771,7 +783,7 @@ export class InteractiveMode {
 		}
 
 		return new CombinedAutocompleteProvider(
-			[...slashCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
+			[...resolvedBuiltinCommands, ...templateCommands, ...extensionCommands, ...skillCommandList],
 			this.sessionManager.getCwd(),
 			this.fdPath,
 		);
@@ -1088,7 +1100,7 @@ export class InteractiveMode {
 		// Start version check asynchronously
 		checkForNewPiVersion(this.version).then((newRelease) => {
 			if (newRelease) {
-				this.showNewVersionNotification(newRelease);
+				// this.showNewVersionNotification(newRelease);
 			}
 		});
 
@@ -2959,6 +2971,12 @@ export class InteractiveMode {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			text = text.trim();
 			if (!text) return;
+			if (this.isBuiltinCommandOverride(text)) {
+				this.editor.addToHistory?.(text);
+				this.editor.setText("");
+				await this.session.prompt(text);
+				return;
+			}
 
 			// Handle commands
 			if (text === "/settings") {
@@ -4388,6 +4406,13 @@ export class InteractiveMode {
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		return !!extensionRunner.getCommand(commandName);
+	}
+
+	private isBuiltinCommandOverride(text: string): boolean {
+		if (!text.startsWith("/")) return false;
+		const spaceIndex = text.indexOf(" ");
+		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		return this.session.extensionRunner.getCommand(commandName)?.overrideBuiltin === true;
 	}
 
 	private async flushCompactionQueue(options?: { willRetry?: boolean }): Promise<void> {

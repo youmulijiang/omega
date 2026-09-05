@@ -1192,6 +1192,8 @@ export interface RegisteredCommand {
 	name: string;
 	sourceInfo: SourceInfo;
 	description?: string;
+	/** Allow this command to replace a built-in slash command with the same name. */
+	overrideBuiltin?: boolean;
 	/** Whether autocomplete should prefix the description with the command's source tag. Defaults to true. */
 	showSourceTag?: boolean;
 	getArgumentCompletions?: (argumentPrefix: string) => AutocompleteItem[] | null | Promise<AutocompleteItem[] | null>;
