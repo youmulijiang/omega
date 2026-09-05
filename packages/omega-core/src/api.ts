@@ -51,12 +51,12 @@ export function createOmegaAPI(pi: ExtensionAPI): OmegaAPI {
 		get(target, prop, receiver) {
 			// omega 专属属性/方法优先
 			if (Object.hasOwn(OMEGA_EXTENSIONS, prop)) {
-				const val = OMEGA_EXTENSIONS[prop as keyof OmegaExtensions];
-				return typeof val === "function" ? (val as Function).bind(OMEGA_EXTENSIONS) : val;
+				const val: unknown = OMEGA_EXTENSIONS[prop as keyof OmegaExtensions];
+				return typeof val === "function" ? val.bind(OMEGA_EXTENSIONS) : val;
 			}
 			// 透传给 pi，保持 pi 内部 this 正确绑定
 			const val = Reflect.get(target, prop, receiver);
-			return typeof val === "function" ? (val as Function).bind(target) : val;
+			return typeof val === "function" ? val.bind(target) : val;
 		},
 
 		has(target, prop) {
