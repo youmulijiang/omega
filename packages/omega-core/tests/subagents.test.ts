@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { OmegaAPI } from "../src/api.ts";
 import { type AgentConfig, discoverAgents } from "../src/subagents/agents.ts";
 import { registerSubagents } from "../src/subagents/index.ts";
-import { buildChildArgs } from "../src/subagents/runner.ts";
+import { buildModelArgs, buildPiArgs, mapConcurrent } from "../src/subagents/runner.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -16,13 +16,11 @@ function createTemporaryProject(): string {
 }
 
 afterEach(() => {
-	for (const directory of temporaryDirectories.splice(0)) {
-		fs.rmSync(directory, { recursive: true, force: true });
-	}
+	for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
 
 describe("Omega subagent discovery", () => {
-	it("loads nested project scenario prompts and overrides builtins by name", () => {
+	it("loads nested project agents and lets project definitions override builtins", () => {
 		const root = createTemporaryProject();
 		const agentsDir = path.join(root, ".omega", "agents", "security");
 		fs.mkdirSync(agentsDir, { recursive: true });
@@ -43,7 +41,6 @@ describe("Omega subagent discovery", () => {
 
 		const discovery = discoverAgents(path.join(root, "src"), "project");
 		const reviewer = discovery.agents.find((agent) => agent.name === "reviewer");
-
 		expect(reviewer).toMatchObject({
 			source: "project",
 			tools: ["read", "grep"],
@@ -53,44 +50,48 @@ describe("Omega subagent discovery", () => {
 		});
 		expect(reviewer?.systemPrompt).toContain("authentication and authorization");
 		expect(discovery.agents.map((agent) => agent.name)).toEqual(
-			expect.arrayContaining(["scout", "reviewer", "worker", "oracle"]),
+			expect.arrayContaining(["log-analyst", "websec-tester", "osint-analyst", "sec-advisor"]),
 		);
 	});
 
-	it("reports an invalid scenario without hiding valid agents", () => {
+	it("skips malformed definitions without hiding built-in agents", () => {
 		const root = createTemporaryProject();
 		const agentsDir = path.join(root, ".omega", "agents");
 		fs.mkdirSync(agentsDir, { recursive: true });
 		fs.writeFileSync(path.join(agentsDir, "invalid.md"), "---\nname: invalid\n---\nPrompt");
-
 		const discovery = discoverAgents(root, "project");
-
-		expect(discovery.diagnostics).toHaveLength(1);
-		expect(discovery.diagnostics[0].message).toContain("description");
-		expect(discovery.agents.some((agent) => agent.name === "scout")).toBe(true);
+		expect(discovery.agents.some((agent) => agent.name === "invalid")).toBe(false);
+		expect(discovery.agents.some((agent) => agent.name === "log-analyst")).toBe(true);
 	});
 });
 
-describe("Omega subagent launch arguments", () => {
-	it("registers the subagent tool and discovery command", () => {
+describe("Omega subagent integration", () => {
+	it("registers flags, lifecycle handlers, the tool, and the discovery command", () => {
+		const flags: string[] = [];
+		const events: string[] = [];
 		const tools: string[] = [];
 		const commands: string[] = [];
 		const omega = {
+			registerFlag: (name: string) => flags.push(name),
+			getFlag: () => undefined,
+			on: (name: string) => events.push(name),
 			registerTool: (tool: { name: string }) => tools.push(tool.name),
 			registerCommand: (name: string) => commands.push(name),
 		} as unknown as OmegaAPI;
-
 		registerSubagents(omega);
-
+		expect(flags).toEqual(["subagent-max-depth", "subagent-prevent-cycles", "no-subagent-prevent-cycles"]);
+		expect(events).toEqual(
+			expect.arrayContaining(["session_start", "session_shutdown", "before_agent_start", "tool_result"]),
+		);
 		expect(tools).toContain("subagent");
-		expect(commands).toContain("subagents");
+		expect(commands).toEqual(expect.arrayContaining(["subagent", "subagents"]));
 	});
 
-	it("applies the selected scenario prompt, model, thinking, and explicit no-tool policy", () => {
+	it("builds isolated Omega arguments with prompt, model, thinking, and tool policy", () => {
 		const agent: AgentConfig = {
 			name: "advisor",
 			description: "Advice only",
-			tools: [],
+			noTools: true,
 			model: "openai/gpt-5",
 			thinking: "high",
 			systemPromptMode: "replace",
@@ -98,18 +99,10 @@ describe("Omega subagent launch arguments", () => {
 			source: "project",
 			filePath: "/project/.omega/agents/advisor.md",
 		};
-
-		const args = buildChildArgs(
-			agent,
-			"Review the plan",
-			{ model: "anthropic/default", thinkingLevel: "low" },
-			"/tmp/advisor.md",
-		);
-
+		const args = buildPiArgs(agent, "/tmp/advisor.md", "Review the plan", "empty", null, undefined, undefined);
 		expect(args).toEqual(
 			expect.arrayContaining([
 				"--no-session",
-				"--no-context-files",
 				"--no-tools",
 				"--model",
 				"openai/gpt-5",
@@ -117,8 +110,32 @@ describe("Omega subagent launch arguments", () => {
 				"high",
 				"--system-prompt",
 				"/tmp/advisor.md",
-				"Task: Review the plan",
 			]),
 		);
+	});
+
+	it("uses call model before agent and parent model", () => {
+		expect(buildModelArgs("openai/call", "openai/agent", { provider: "openai", id: "parent" }, undefined, undefined)).toEqual([
+			"--model",
+			"openai/call",
+		]);
+		expect(buildModelArgs(undefined, undefined, { provider: "openai", id: "parent" }, undefined, undefined)).toEqual([
+			"--model",
+			"openai/parent",
+		]);
+	});
+
+	it("preserves result order while enforcing bounded concurrency", async () => {
+		let active = 0;
+		let peak = 0;
+		const results = await mapConcurrent([30, 5, 10, 1], 2, async (delay, index) => {
+			active++;
+			peak = Math.max(peak, active);
+			await new Promise((resolve) => setTimeout(resolve, delay));
+			active--;
+			return index;
+		});
+		expect(results).toEqual([0, 1, 2, 3]);
+		expect(peak).toBe(2);
 	});
 });
