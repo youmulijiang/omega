@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { McpConfigFile, McpReconnectOptions, McpServerBase, McpServerConfig } from "./native-types.ts";
+import type {
+	McpConfigFile,
+	McpOAuthOptions,
+	McpReconnectOptions,
+	McpServerBase,
+	McpServerConfig,
+} from "./native-types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,6 +44,24 @@ function parseReconnect(name: string, value: unknown): McpReconnectOptions | und
 	};
 }
 
+function parseOAuth(name: string, value: unknown): McpOAuthOptions | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) throw new Error(`MCP server "${name}" oauth must be an object`);
+	if (value.clientId !== undefined && typeof value.clientId !== "string") {
+		throw new Error(`MCP server "${name}" oauth.clientId must be a string`);
+	}
+	if (value.clientSecret !== undefined && typeof value.clientSecret !== "string") {
+		throw new Error(`MCP server "${name}" oauth.clientSecret must be a string`);
+	}
+	if (value.scope !== undefined && typeof value.scope !== "string") {
+		throw new Error(`MCP server "${name}" oauth.scope must be a string`);
+	}
+	return {
+		...(typeof value.clientId === "string" ? { clientId: value.clientId } : {}),
+		...(typeof value.clientSecret === "string" ? { clientSecret: value.clientSecret } : {}),
+		...(typeof value.scope === "string" ? { scope: value.scope } : {}),
+	};
+}
 function parseServer(name: string, value: unknown): McpServerConfig {
 	if (!isRecord(value)) throw new Error(`MCP server "${name}" must be an object`);
 	const timeout = optionalNonNegativeNumber(value.timeout, `MCP server "${name}" timeout`);
@@ -46,6 +70,7 @@ function parseServer(name: string, value: unknown): McpServerConfig {
 		...(typeof value.enabled === "boolean" ? { enabled: value.enabled } : {}),
 		...(timeout === undefined ? {} : { timeout }),
 		...(value.auth === "oauth" || value.auth === "none" ? { auth: value.auth } : {}),
+		...(value.oauth === undefined ? {} : { oauth: parseOAuth(name, value.oauth) }),
 		...(value.reconnect === undefined ? {} : { reconnect: parseReconnect(name, value.reconnect) }),
 	};
 

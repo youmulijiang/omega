@@ -17,10 +17,6 @@ export function mcpRequestOptions(timeout: number, signal?: AbortSignal): { time
 	};
 }
 
-export function describeMcpTimeout(timeout: number): string {
-	return timeout > 0 ? `${timeout}ms` : "disabled";
-}
-
 export function withTimeoutSignal(timeout: number, signal?: AbortSignal): AbortSignal | undefined {
 	if (timeout <= 0) return signal;
 	const timeoutSignal = AbortSignal.timeout(timeout);

@@ -1,10 +1,13 @@
 import { isAbsolute, resolve } from "node:path";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { interpolateEnvVars, loadMcpConfig } from "./native-config.ts";
 import type { McpConnection, McpReconnectOptions, McpServerConfig, McpServerState } from "./native-types.ts";
+import { OmegaOAuthProvider, OmegaOAuthStore } from "./oauth.ts";
+import { runOAuthFlow } from "./oauth-flow.ts";
 import { mcpRequestOptions, resolveMcpTimeoutMs } from "./timeout.ts";
 import { OmegaMcpToolCache } from "./tool-cache.ts";
 
@@ -20,6 +23,7 @@ const RECONNECT_BURST_LIMIT = 5;
 
 export interface OmegaMcpManagerOptions {
 	toolCache?: OmegaMcpToolCache;
+	oauthStore?: OmegaOAuthStore;
 }
 
 function isEnabled(config: McpServerConfig): boolean {
@@ -60,6 +64,7 @@ function formatError(error: unknown): string {
 export class OmegaMcpManager {
 	private readonly cwd: string;
 	private readonly toolCache: OmegaMcpToolCache;
+	private readonly oauthStore: OmegaOAuthStore;
 	private readonly connections = new Map<string, McpConnection>();
 	private readonly states = new Map<string, McpServerState>();
 	private readonly pendingConnections = new Map<string, Promise<McpServerState>>();
@@ -71,6 +76,7 @@ export class OmegaMcpManager {
 	constructor(cwd: string, options: OmegaMcpManagerOptions = {}) {
 		this.cwd = cwd;
 		this.toolCache = options.toolCache ?? new OmegaMcpToolCache();
+		this.oauthStore = options.oauthStore ?? new OmegaOAuthStore();
 	}
 
 	async reload(connect = true): Promise<void> {
@@ -79,6 +85,7 @@ export class OmegaMcpManager {
 		this.cancelReconnects();
 		await this.closeConnections();
 		this.states.clear();
+		this.reconnectHistory.clear();
 		for (const [name, config] of Object.entries(loadMcpConfig(this.cwd).mcpServers)) {
 			const cachedTools = await this.toolCache.get(name, config).catch(() => undefined);
 			this.states.set(name, {
@@ -129,6 +136,34 @@ export class OmegaMcpManager {
 		state.status = isEnabled(state.config) ? "disconnected" : "disabled";
 		state.error = undefined;
 		return this.connect(name);
+	}
+	/**
+	 * Runs the interactive OAuth authorization_code flow for an HTTP server
+	 * (`runOAuthFlow`), then reconnects it. `presentUrl` decides how the
+	 * authorization URL reaches the user.
+	 */
+	async authenticate(name: string, presentUrl: (url: URL) => void | Promise<void>): Promise<McpServerState> {
+		const state = this.states.get(name);
+		if (!state) throw new Error(`Unknown MCP server: ${name}`);
+		if (!("url" in state.config)) throw new Error(`MCP server "${name}" does not support OAuth (HTTP only)`);
+		await runOAuthFlow({
+			serverName: name,
+			serverUrl: interpolateEnvVars(state.config.url),
+			clientId: state.config.oauth?.clientId,
+			clientSecret: state.config.oauth?.clientSecret,
+			scope: state.config.oauth?.scope,
+			store: this.oauthStore,
+			presentUrl,
+		});
+		return this.reconnect(name);
+	}
+
+	/**
+	 * Clears stored OAuth credentials for a server and disconnects it.
+	 */
+	async logout(name: string): Promise<void> {
+		await this.oauthStore.clearServer(name);
+		await this.close(name);
 	}
 
 	listTools(server?: string): Array<{ server: string; tool: Tool }> {
@@ -192,9 +227,13 @@ export class OmegaMcpManager {
 		const state = this.states.get(name);
 		if (!state) throw new Error(`Unknown MCP server: ${name}`);
 		if (state.status === "disabled" || state.status === "connected") return state;
-		if (state.config.auth === "oauth" && !("headers" in state.config && state.config.headers?.Authorization)) {
+		if (
+			state.config.auth === "oauth" &&
+			!("headers" in state.config && state.config.headers?.Authorization) &&
+			!("url" in state.config)
+		) {
 			state.status = "needs-auth";
-			state.error = "OAuth is configured but no Authorization header is available";
+			state.error = "OAuth is only supported for HTTP servers";
 			return state;
 		}
 
@@ -217,7 +256,7 @@ export class OmegaMcpManager {
 					},
 				},
 			);
-			const transport = this.createTransport(state.config);
+			const transport = this.createTransport(name, state.config);
 			const timeout = resolveMcpTimeoutMs(state.config.timeout);
 			client.onclose = () => {
 				const connection = this.connections.get(name);
@@ -242,14 +281,17 @@ export class OmegaMcpManager {
 		} catch (error) {
 			await client?.close().catch(() => undefined);
 			const message = formatError(error);
-			state.status = /401|403|unauthorized|oauth/i.test(message) ? "needs-auth" : "error";
-			state.error = message;
+			const needsAuth = error instanceof UnauthorizedError || /401|403|unauthorized|oauth/i.test(message);
+			state.status = needsAuth ? "needs-auth" : "error";
+			state.error = needsAuth && error instanceof UnauthorizedError ? "OAuth authorization required" : message;
 			if (state.status !== "needs-auth") this.scheduleReconnect(name);
 			throw error;
 		}
 	}
-
-	private createTransport(config: McpServerConfig): StdioClientTransport | StreamableHTTPClientTransport {
+	private createTransport(
+		name: string,
+		config: McpServerConfig,
+	): StdioClientTransport | StreamableHTTPClientTransport {
 		if ("command" in config) {
 			return new StdioClientTransport({
 				command: interpolateEnvVars(config.command),
@@ -264,7 +306,19 @@ export class OmegaMcpManager {
 			});
 		}
 		const reconnect = reconnectOptions(config);
+		const useOAuth = config.auth === "oauth" && !config.headers?.Authorization;
+		const authProvider = useOAuth
+			? new OmegaOAuthProvider({
+					serverName: name,
+					serverUrl: interpolateEnvVars(config.url),
+					clientId: config.oauth?.clientId,
+					clientSecret: config.oauth?.clientSecret,
+					scope: config.oauth?.scope,
+					store: this.oauthStore,
+				})
+			: undefined;
 		return new StreamableHTTPClientTransport(new URL(interpolateEnvVars(config.url)), {
+			...(authProvider ? { authProvider } : {}),
 			requestInit: config.headers ? { headers: interpolateRecord(config.headers) } : undefined,
 			reconnectionOptions: {
 				initialReconnectionDelay: reconnect.initialDelay,

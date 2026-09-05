@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
@@ -20,7 +21,7 @@ import {
 } from "./smithery-connect.ts";
 import { type SmitherySearchResult, searchSmitheryRegistry, smitheryConfigName } from "./smithery-registry.ts";
 
-type McpAction = "status" | "list_tools" | "call" | "reconnect";
+type McpAction = "status" | "list_tools" | "call" | "reconnect" | "authenticate" | "logout";
 
 function statusText(states: McpServerState[]): string {
 	if (states.length === 0) return "No MCP servers configured. Run /mcp to add one.";
@@ -54,6 +55,35 @@ function parseJsonObject(raw: string | undefined): Record<string, unknown> {
 		throw new Error("MCP arguments must be a JSON object");
 	}
 	return parsed as Record<string, unknown>;
+}
+
+/**
+ * Runs the OAuth flow for a server and shows the authorization URL. Opens the
+ * browser when possible; always prints the URL for manual copy.
+ */
+async function authenticateServer(ctx: ExtensionCommandContext, manager: OmegaMcpManager, name: string): Promise<void> {
+	ctx.ui.setWorkingMessage("Waiting for OAuth authorization...");
+	try {
+		const state = await manager.authenticate(name, async (url) => {
+			ctx.ui.notify(`OAuth authorization URL for "${name}" (open in a browser):\n${url.toString()}`, "info");
+			const opened = openBrowser(url);
+			if (!opened) ctx.ui.notify("Automatic browser launch unavailable; open the URL manually.", "warning");
+		});
+		ctx.ui.notify(`Authorized ${name}: ${state.status} (${state.tools.length} tools)`, "info");
+	} finally {
+		ctx.ui.setWorkingMessage();
+	}
+}
+
+function openBrowser(url: URL): boolean {
+	const command = process.platform === "win32" ? 'start ""' : process.platform === "darwin" ? "open" : "xdg-open";
+	try {
+		const child = spawn(`${command} "${url.toString()}"`, { shell: true, detached: true, stdio: "ignore" });
+		child.unref();
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 async function addHttpServer(ctx: ExtensionCommandContext, manager: OmegaMcpManager): Promise<void> {
@@ -177,6 +207,8 @@ async function manageServer(ctx: ExtensionCommandContext, manager: OmegaMcpManag
 	const action = await ctx.ui.select(`MCP: ${name}`, [
 		"Show tools",
 		"Reconnect",
+		...(state.status === "needs-auth" || "url" in state.config ? ["Authenticate (OAuth)"] : []),
+		...("url" in state.config ? ["Logout (clear OAuth credentials)"] : []),
 		state.status === "disabled" ? "Enable" : "Disable",
 		"Remove",
 	]);
@@ -191,6 +223,11 @@ async function manageServer(ctx: ExtensionCommandContext, manager: OmegaMcpManag
 	} else if (action === "Reconnect") {
 		await manager.reconnect(name);
 		ctx.ui.notify(`Reconnected ${name}`, "info");
+	} else if (action === "Authenticate (OAuth)") {
+		await authenticateServer(ctx, manager, name);
+	} else if (action === "Logout (clear OAuth credentials)") {
+		await manager.logout(name);
+		ctx.ui.notify(`Cleared OAuth credentials for ${name}`, "info");
 	} else if (action === "Enable" || action === "Disable") {
 		updateProjectServer(ctx.cwd, name, { ...state.config, disabled: action === "Disable" });
 		await manager.reload();
@@ -250,7 +287,7 @@ export function registerMcp(omega: OmegaAPI): void {
 	registerOmegaCommand(omega, "mcp", {
 		description: "Configure MCP servers and inspect their tools",
 		getArgumentCompletions: (prefix) =>
-			["status", "reload", "tools", "smithery"]
+			["status", "reload", "tools", "smithery", "auth"]
 				.filter((value) => value.startsWith(prefix.trim()))
 				.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
@@ -271,7 +308,18 @@ export function registerMcp(omega: OmegaAPI): void {
 							: "No MCP tools available",
 						"info",
 					);
-				} else ctx.ui.notify("Usage: /mcp [status|reload|tools|smithery]", "warning");
+				} else if (command.startsWith("auth")) {
+					const name = command.slice("auth".length).trim();
+					const states = active.getStates();
+					const target = name
+						? name
+						: await ctx.ui.select(
+								"Select MCP server to authenticate",
+								states.filter((state) => "url" in state.config).map((state) => state.name),
+							);
+					if (target) await authenticateServer(ctx, active, target);
+					else ctx.ui.notify("Usage: /mcp auth [server]", "warning");
+				} else ctx.ui.notify("Usage: /mcp [status|reload|tools|smithery|auth]", "warning");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
@@ -283,7 +331,7 @@ export function registerMcp(omega: OmegaAPI): void {
 		label: "MCP",
 		description: "List configured MCP servers/tools, reconnect a server, or call an MCP tool.",
 		parameters: Type.Object({
-			action: StringEnum(["status", "list_tools", "call", "reconnect"] as const),
+			action: StringEnum(["status", "list_tools", "call", "reconnect", "authenticate", "logout"] as const),
 			server: Type.Optional(Type.String({ description: "MCP server name" })),
 			tool: Type.Optional(Type.String({ description: "Remote MCP tool name" })),
 			arguments: Type.Optional(
@@ -321,6 +369,24 @@ export function registerMcp(omega: OmegaAPI): void {
 				return {
 					content: [{ type: "text", text: `${state.name}: ${state.status} (${state.tools.length} tools)` }],
 					details: { state },
+				};
+			}
+			if (action === "authenticate") {
+				const state = await active.authenticate(params.server, (url) => {
+					throw new Error(
+						`MCP server "${params.server}" requires OAuth authorization. Ask the user to run /mcp auth ${params.server} and open:\n${url.toString()}`,
+					);
+				});
+				return {
+					content: [{ type: "text", text: `${state.name}: ${state.status} (${state.tools.length} tools)` }],
+					details: { state },
+				};
+			}
+			if (action === "logout") {
+				await active.logout(params.server);
+				return {
+					content: [{ type: "text", text: `Cleared OAuth credentials for ${params.server}` }],
+					details: { server: params.server },
 				};
 			}
 			if (!params.tool) throw new Error("MCP call requires tool");

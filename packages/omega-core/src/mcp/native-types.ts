@@ -10,11 +10,18 @@ export interface McpReconnectOptions {
 	factor?: number;
 }
 
+export interface McpOAuthOptions {
+	clientId?: string;
+	clientSecret?: string;
+	scope?: string;
+}
+
 export interface McpServerBase {
 	disabled?: boolean;
 	enabled?: boolean;
 	timeout?: number;
 	auth?: "oauth" | "none";
+	oauth?: McpOAuthOptions;
 	reconnect?: McpReconnectOptions;
 }
 
