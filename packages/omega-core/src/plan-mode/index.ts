@@ -84,6 +84,16 @@ export function registerPlanMode(omega: OmegaAPI): void {
 		updateUI(ctx);
 	}
 
+	function startPlanTask(prompt: string, ctx: ExtensionContext): void {
+		planMode = "plan";
+		steps = [];
+		activatePlanTools();
+		persistState();
+		updateUI(ctx);
+		ctx.ui.notify(`Plan mode enabled. Tools: ${PLAN_MODE_TOOLS.join(", ")}`);
+		omega.sendUserMessage(prompt);
+	}
+
 	// --- CLI flag ---
 
 	omega.registerFlag("plan", {
@@ -95,8 +105,15 @@ export function registerPlanMode(omega: OmegaAPI): void {
 	// --- Commands ---
 
 	registerOmegaCommand(omega, "plan", {
-		description: "Toggle plan mode (read-only exploration)",
-		handler: async (_args, ctx) => togglePlanMode(ctx),
+		description: "Start a task in plan mode, or toggle plan mode without arguments",
+		handler: async (args, ctx) => {
+			const prompt = args.trim();
+			if (prompt) {
+				startPlanTask(prompt, ctx);
+				return;
+			}
+			togglePlanMode(ctx);
+		},
 	});
 
 	registerOmegaCommand(omega, "plan:status", {

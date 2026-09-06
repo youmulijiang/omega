@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { registerMcp } from "../src/mcp/index.ts";
 
 describe("registerMcp", () => {
-	it("registers the /mcp command and MCP proxy tool", () => {
+	it("registers the MCP commands and proxy tool", () => {
 		const commands: string[] = [];
 		const tools: string[] = [];
 		const pi = {
@@ -20,6 +20,8 @@ describe("registerMcp", () => {
 		registerMcp(pi);
 
 		expect(commands).toContain("mcp");
+		expect(commands).toContain("mcp:list");
+		expect(commands).toContain("mcp:status");
 		expect(tools).toContain("mcp");
 	});
 });

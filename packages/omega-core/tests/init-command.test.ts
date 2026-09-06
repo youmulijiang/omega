@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerCommands } from "../src/commands/index.ts";
-import { initializeOmegaWorkspace } from "../src/commands/init.ts";
+import { initializeOmegaWorkspace, registerInit } from "../src/init/index.ts";
 
 type CommandHandler = Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
 
@@ -66,7 +65,7 @@ describe("Omega init command", () => {
 			registerShortcut: vi.fn(),
 			on: vi.fn(),
 		} as unknown as ExtensionAPI;
-		registerCommands(pi);
+		registerInit(pi);
 
 		await commands.get("init")?.("", { cwd: workspace, ui: { notify } } as Parameters<CommandHandler>[1]);
 

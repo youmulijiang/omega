@@ -23,6 +23,17 @@ import { type SmitherySearchResult, searchSmitheryRegistry, smitheryConfigName }
 
 type McpAction = "status" | "list_tools" | "call" | "reconnect" | "authenticate" | "logout";
 
+function serverListText(states: McpServerState[]): string {
+	if (states.length === 0) return "No MCP servers configured. Run /mcp to add one.";
+	return states
+		.map((state) => {
+			const transport = "command" in state.config ? `stdio · ${state.config.command}` : `http · ${state.config.url}`;
+			const enabled = state.status === "disabled" ? "disabled" : "enabled";
+			return `- ${state.name}: ${transport} (${enabled})`;
+		})
+		.join("\n");
+}
+
 function statusText(states: McpServerState[]): string {
 	if (states.length === 0) return "No MCP servers configured. Run /mcp to add one.";
 	return states
@@ -320,6 +331,30 @@ export function registerMcp(omega: OmegaAPI): void {
 					if (target) await authenticateServer(ctx, active, target);
 					else ctx.ui.notify("Usage: /mcp auth [server]", "warning");
 				} else ctx.ui.notify("Usage: /mcp [status|reload|tools|smithery|auth]", "warning");
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	registerOmegaCommand(omega, "mcp:list", {
+		description: "List configured MCP servers",
+		handler: async (_args, ctx) => {
+			try {
+				const active = await getManager(ctx.cwd);
+				ctx.ui.notify(serverListText(active.getStates()), "info");
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	registerOmegaCommand(omega, "mcp:status", {
+		description: "Show MCP server connection status",
+		handler: async (_args, ctx) => {
+			try {
+				const active = await getManager(ctx.cwd);
+				ctx.ui.notify(statusText(active.getStates()), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}

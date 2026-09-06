@@ -60,6 +60,41 @@ describe("registerCommands", () => {
 		);
 	});
 
+	it("starts the supplied prompt as a plan-mode task", async () => {
+		const commands = new Map<string, CommandHandler>();
+		const sendUserMessage = vi.fn();
+		const setActiveTools = vi.fn();
+		const appendEntry = vi.fn();
+		const pi = {
+			appendEntry,
+			getActiveTools: vi.fn(() => ["read", "bash", "edit", "write"]),
+			registerCommand: (name: string, command: { handler: CommandHandler }) => commands.set(name, command.handler),
+			registerFlag: vi.fn(),
+			registerShortcut: vi.fn(),
+			sendUserMessage,
+			setActiveTools,
+			on: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			ui: {
+				notify: vi.fn(),
+				setStatus: vi.fn(),
+				setWidget: vi.fn(),
+				theme: { fg: (_color: string, text: string) => text },
+			},
+		} as Parameters<CommandHandler>[1];
+
+		registerCommands(pi);
+		await commands.get("plan")?.("  analyze the authentication flow  ", ctx);
+
+		expect(setActiveTools).toHaveBeenCalledWith(["read", "bash", "grep", "find", "ls"]);
+		expect(appendEntry).toHaveBeenCalledWith(
+			"omega-plan",
+			expect.objectContaining({ mode: "plan", steps: [] }),
+		);
+		expect(sendUserMessage).toHaveBeenCalledWith("analyze the authentication flow");
+	});
+
 	it("restores the tools that were active before plan mode", async () => {
 		const commands = new Map<string, CommandHandler>();
 		const activeTools = ["read", "bash", "edit", "write", "mcp_scan"];

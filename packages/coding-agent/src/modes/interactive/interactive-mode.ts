@@ -663,7 +663,7 @@ export class InteractiveMode {
 		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
 		return extensionRunner
 			.getRegisteredCommands()
-			.filter((command) => builtinNames.has(command.name))
+			.filter((command) => builtinNames.has(command.name) && command.overrideBuiltin !== true)
 			.map((command) => ({
 				type: "warning" as const,
 				message:
