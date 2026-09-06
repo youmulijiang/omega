@@ -85,3 +85,6 @@
 ## Overrides
 
 - If a user request conflicts with these rules, explain the conflict and obtain explicit confirmation before overriding it.
+
+
+如果需要修改上游代码时,不要对变量进行删除，进行增量修改
