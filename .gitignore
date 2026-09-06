@@ -44,3 +44,6 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+.bun-cache/
+.agent/
+.omega/agent/models.json

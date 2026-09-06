@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$env:OMEGA_CODING_AGENT_DIR = Join-Path $scriptDir ".omega/agent"
 $noEnv = $false
 $forwardArgs = New-Object System.Collections.Generic.List[string]
 
@@ -49,6 +50,7 @@ if ($noEnv) {
 		"AZURE_OPENAI_API_KEY",
 		"AZURE_OPENAI_BASE_URL",
 		"AZURE_OPENAI_RESOURCE_NAME"
+		"OMEGA_TEST_API_KEY"
 	)
 
 	foreach ($name in $envVarsToUnset) {
