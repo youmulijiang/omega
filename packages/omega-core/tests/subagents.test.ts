@@ -2,10 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../src/api.ts";
 import { type AgentConfig, discoverAgents } from "../src/subagents/agents.ts";
 import { registerSubagents } from "../src/subagents/index.ts";
 import { buildModelArgs, buildPiArgs, mapConcurrent } from "../src/subagents/runner.ts";
+import { readSubagentSettings, writeSubagentSettings } from "../src/subagents/settings.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -67,6 +69,7 @@ describe("Omega subagent discovery", () => {
 
 describe("Omega subagent integration", () => {
 	it("registers flags, lifecycle handlers, the tool, and the discovery command", () => {
+		const root = createTemporaryProject();
 		const flags: string[] = [];
 		const events: string[] = [];
 		const tools: string[] = [];
@@ -78,13 +81,72 @@ describe("Omega subagent integration", () => {
 			registerTool: (tool: { name: string }) => tools.push(tool.name),
 			registerCommand: (name: string) => commands.push(name),
 		} as unknown as OmegaAPI;
-		registerSubagents(omega);
+		registerSubagents(omega, { settingsPath: path.join(root, "subagents.json") });
 		expect(flags).toEqual(["subagent-max-depth", "subagent-prevent-cycles", "no-subagent-prevent-cycles"]);
 		expect(events).toEqual(
 			expect.arrayContaining(["session_start", "session_shutdown", "before_agent_start", "tool_result"]),
 		);
 		expect(tools).toContain("subagent");
-		expect(commands).toEqual(expect.arrayContaining(["subagent", "subagents"]));
+		expect(commands).toEqual(expect.arrayContaining(["subagent:list", "subagent:settings", "subagent:status"]));
+	});
+
+	it("does not register or advertise the tool when disabled", () => {
+		const root = createTemporaryProject();
+		const settingsPath = path.join(root, "subagents.json");
+		writeSubagentSettings({ enabled: false }, settingsPath);
+		const events: string[] = [];
+		const tools: string[] = [];
+		const commands: string[] = [];
+		const omega = {
+			registerFlag: () => undefined,
+			getFlag: () => undefined,
+			on: (name: string) => events.push(name),
+			registerTool: (tool: { name: string }) => tools.push(tool.name),
+			registerCommand: (name: string) => commands.push(name),
+		} as unknown as OmegaAPI;
+
+		registerSubagents(omega, { settingsPath });
+
+		expect(readSubagentSettings(settingsPath)).toEqual({ enabled: false });
+		expect(tools).not.toContain("subagent");
+		expect(commands).toEqual(expect.arrayContaining(["subagent:settings", "subagent:status"]));
+		expect(events).not.toContain("before_agent_start");
+	});
+
+	it("persists a settings selection and reloads extensions", async () => {
+		const root = createTemporaryProject();
+		const settingsPath = path.join(root, "subagents.json");
+		const commands = new Map<
+			string,
+			(args: string, ctx: ExtensionCommandContext) => Promise<void>
+		>();
+		const omega = {
+			registerFlag: () => undefined,
+			getFlag: () => undefined,
+			on: () => undefined,
+			registerTool: () => undefined,
+			registerCommand: (
+				name: string,
+				options: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
+			) => commands.set(name, options.handler),
+		} as unknown as OmegaAPI;
+		registerSubagents(omega, { settingsPath });
+		let reloads = 0;
+		const ctx = {
+			hasUI: true,
+			ui: {
+				select: async () => "禁用",
+				notify: () => undefined,
+			},
+			reload: async () => {
+				reloads++;
+			},
+		} as unknown as ExtensionCommandContext;
+
+		await commands.get("subagent:settings")?.("", ctx);
+
+		expect(readSubagentSettings(settingsPath)).toEqual({ enabled: false });
+		expect(reloads).toBe(1);
 	});
 
 	it("builds isolated Omega arguments with prompt, model, thinking, and tool policy", () => {

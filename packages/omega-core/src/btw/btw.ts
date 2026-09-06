@@ -316,6 +316,7 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 							!sameAsMainThinkingLevel && effectiveRememberThinkingLevelChanges(settings),
 						state,
 						ctx: fullscreenCtx,
+						omega,
 					});
 				});
 			} finally {
@@ -406,7 +407,11 @@ interface RunBtwThreadDependencies {
 	ask?: typeof askThreadQuestion;
 	interact?: typeof showThreadComposer;
 	chooseBringToMain?: typeof chooseBringToMain;
-	deliverBringToMain?: typeof loadBringToMainDraft;
+	deliverBringToMain?: (
+		draft: string,
+		ctx: ExtensionCommandContext,
+		summary: BtwBringToMainSummary,
+	) => Promise<BtwBringToMainDelivery>;
 	persistThinkingLevel?: (level: BtwThinkingLevel) => Promise<unknown>;
 	now?: () => number;
 }
@@ -441,6 +446,7 @@ interface RunBtwThreadOptions {
 	settingsPath?: string;
 	state?: BtwThreadState;
 	ctx: ExtensionCommandContext;
+	omega: Pick<OmegaAPI, "sendMessage">;
 	dependencies?: RunBtwThreadDependencies;
 }
 
@@ -452,12 +458,15 @@ export async function runBtwThread({
 	settingsPath,
 	state,
 	ctx,
+	omega,
 	dependencies = {},
 }: RunBtwThreadOptions): Promise<BtwThreadResult> {
 	const ask = dependencies.ask ?? askThreadQuestion;
 	const interact = dependencies.interact ?? showThreadComposer;
 	const chooseBringToMainAction = dependencies.chooseBringToMain ?? chooseBringToMain;
-	const deliverBringToMainDraft = dependencies.deliverBringToMain ?? loadBringToMainDraft;
+	const deliverBringToMainDraft =
+		dependencies.deliverBringToMain ??
+		((draft, deliveryCtx, summary) => publishBringToMainResult(draft, deliveryCtx, summary, omega));
 	const persistThinkingLevel =
 		dependencies.persistThinkingLevel ??
 		((level: BtwThinkingLevel) => updateBtwSettings({ thinkingLevel: level }, { settingsPath }));
@@ -737,61 +746,26 @@ function terminalBtwMenuAction(result: RunMenuResult): { kind: "back" } | { kind
 	return { kind: "close" };
 }
 
-export async function loadBringToMainDraft(
+export async function publishBringToMainResult(
 	draft: string,
 	ctx: ExtensionCommandContext,
 	summary: BtwBringToMainSummary,
+	omega: Pick<OmegaAPI, "sendMessage">,
 ): Promise<BtwBringToMainDelivery> {
-	const describeContent = () =>
-		`${summary.messages} ${summary.messages === 1 ? "message" : "messages"} (~${summary.tokens} ${summary.tokens === 1 ? "token" : "tokens"})`;
-	const existing = ctx.ui.getEditorText();
-	if (!existing.trim()) {
-		ctx.ui.setEditorText(draft);
-		ctx.ui.notify(`Brought ${describeContent()} to the main editor. Review and submit when ready.`, "info");
-		return "loaded";
-	}
-
-	const appendOption = "Append after current draft  Recommended";
-	const replaceOption = "⚠ Replace current draft  Discards current editor text";
-	const cancelOption = "Cancel  Return to the side thread";
-	while (true) {
-		const action = await showBtwMenu(ctx, "The main editor already has a draft", [
-			appendOption,
-			replaceOption,
-			cancelOption,
-		]);
-		if (action.kind === "close") return "closed";
-		if (action.kind === "back" || action.value === cancelOption) return "back";
-		if (action.value === appendOption) {
-			ctx.ui.setEditorText(`${ctx.ui.getEditorText()}\n\n${draft}`);
-			ctx.ui.notify(
-				`Appended ${describeContent()} to the existing main-editor draft. Review and submit when ready.`,
-				"info",
-			);
-			return "loaded";
-		}
-		if (action.value !== replaceOption) continue;
-
-		const current = ctx.ui.getEditorText();
-		const characters = [...current].length;
-		const confirmed = await showBtwMenu(ctx, `Replace the current ${characters}-character editor draft?`, [
-			"Back  Keep current editor text",
-			"⚠ Replace current draft  Cannot be undone",
-		]);
-		if (confirmed.kind === "close") return "closed";
-		if (confirmed.kind === "back" || confirmed.value === "Back  Keep current editor text") continue;
-		if (confirmed.value !== "⚠ Replace current draft  Cannot be undone") continue;
-		if (ctx.ui.getEditorText() !== current) {
-			ctx.ui.notify(
-				"The main editor changed during confirmation. Review the updated draft and choose again.",
-				"warning",
-			);
-			continue;
-		}
-		ctx.ui.setEditorText(draft);
-		ctx.ui.notify(`Replaced the main-editor draft with ${describeContent()}. Review and submit when ready.`, "info");
-		return "loaded";
-	}
+	omega.sendMessage(
+		{
+			customType: "btw-result",
+			content: draft,
+			display: true,
+			details: summary,
+		},
+		{ triggerTurn: false },
+	);
+	ctx.ui.notify(
+		`Returned ${summary.messages} ${summary.messages === 1 ? "message" : "messages"} from BTW to the main conversation.`,
+		"info",
+	);
+	return "loaded";
 }
 
 function truncatePreview(text: string): string {

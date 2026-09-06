@@ -1,4 +1,4 @@
-import type { UsageStats } from "./types.js";
+import type { UsageStats } from "./types.ts";
 
 export interface InclusiveCostStats {
 	main: UsageStats;

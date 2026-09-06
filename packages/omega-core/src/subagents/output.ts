@@ -9,7 +9,7 @@ import {
 	truncateLine,
 } from "@earendil-works/pi-coding-agent";
 import { getResultSummaryText } from "./runner-events.js";
-import { isResultError, isResultSuccess, type SingleResult } from "./types.js";
+import { isResultError, isResultSuccess, type SingleResult } from "./types.ts";
 
 export type SaveFullOutput = (content: string) => string | null;
 

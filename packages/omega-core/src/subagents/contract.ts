@@ -6,7 +6,7 @@
  * so those surfaces do not drift independently.
  */
 
-import type { AgentConfig } from "./agents.js";
+import type { AgentConfig } from "./agents.ts";
 
 export interface DelegationGuardSummary {
 	currentDepth: number;

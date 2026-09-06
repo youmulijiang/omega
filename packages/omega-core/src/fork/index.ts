@@ -1,7 +1,8 @@
 /**
  * Omega Fork
  *
- * Provides the internal /fork command and fork tool.
+ * Provides the /fork:task command and fork tool for isolated task execution.
+ * The built-in /fork command remains available for persistent session branching.
  *
  * The child process receives a temporary JSONL snapshot of the current active
  * session branch, then a final user message containing fork-worker instructions
@@ -12,10 +13,10 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
-import { EFFORT_LEVELS, type ForkConfig, loadConfig } from "./config.js";
-import { aggregateInclusiveCost, formatForkCostStatus } from "./cost.js";
-import { renderForkCall, renderForkResult } from "./render.js";
-import { runFork } from "./runner.js";
+import { EFFORT_LEVELS, type ForkConfig, loadConfig } from "./config.ts";
+import { aggregateInclusiveCost, formatForkCostStatus } from "./cost.ts";
+import { renderForkCall, renderForkResult } from "./render.ts";
+import { runFork } from "./runner.ts";
 import { getResultSummaryText } from "./runner-events.js";
 import {
 	emptyUsage,
@@ -25,7 +26,7 @@ import {
 	type ForkEffortState,
 	type ForkResult,
 	isResultError,
-} from "./types.js";
+} from "./types.ts";
 
 const ForkParams = Type.Object({
 	task: Type.String({
@@ -179,7 +180,7 @@ async function resolveCommandTask(args: string, ctx: ExtensionCommandContext): P
 	const task = args.trim();
 	if (task) return task;
 	if (!ctx.hasUI) {
-		ctx.ui.notify("Usage: /fork <task>", "warning");
+		ctx.ui.notify("Usage: /fork:task <task>", "warning");
 		return undefined;
 	}
 	return (await ctx.ui.input("Fork task", "Describe the focused task"))?.trim() || undefined;
@@ -202,9 +203,8 @@ export function registerFork(omega: OmegaAPI): void {
 		ctx.ui.setStatus(FORK_COST_STATUS_KEY, undefined);
 	});
 
-	registerOmegaCommand(omega, "fork", {
+	registerOmegaCommand(omega, "fork:task", {
 		description: "在独立的 Omega 子进程中执行聚焦任务",
-		overrideBuiltin: true,
 		handler: async (args, ctx) => {
 			const task = await resolveCommandTask(args, ctx);
 			if (!task) return;

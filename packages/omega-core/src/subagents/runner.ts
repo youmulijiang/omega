@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_BYTES, truncateTail } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig } from "./agents.js";
+import type { AgentConfig } from "./agents.ts";
 import { getInheritedProjectTrustArgs, parseInheritedCliArgs, selectInheritedPiArgv } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
 import {
@@ -22,7 +22,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentSessionDetails,
-} from "./types.js";
+} from "./types.ts";
 
 const isWindows = process.platform === "win32";
 const SIGKILL_TIMEOUT_MS = 500;

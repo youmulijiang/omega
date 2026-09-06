@@ -19,20 +19,27 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
-import { type AgentConfig, discoverAgentsWithStarter, MAX_TIMER_SECONDS, STARTER_AGENT_NAME } from "./agents.js";
+import {
+	type AgentConfig,
+	discoverAgents,
+	discoverAgentsWithStarter,
+	MAX_TIMER_SECONDS,
+	STARTER_AGENT_NAME,
+} from "./agents.ts";
 import {
 	CALLS_SCHEMA_DESCRIPTION,
 	formatAvailableSubagentsPrompt,
 	formatSubagentToolDescription,
 	formatSubagentUsageErrorExample,
 	getCallFieldSchemaDescription,
-} from "./contract.js";
-import { formatCallsSummary, writeOutputArtifact } from "./output.js";
-import { renderCall, renderResult } from "./render.js";
-import { mapConcurrent, type ParentModel, runAgent } from "./runner.js";
+} from "./contract.ts";
+import { formatCallsSummary, writeOutputArtifact } from "./output.ts";
+import { renderCall, renderResult } from "./render.ts";
+import { mapConcurrent, type ParentModel, runAgent } from "./runner.ts";
 import { parseInheritedCliArgs, selectInheritedPiArgv } from "./runner-cli.js";
-import { acquireSessionLocks, releaseSessionLocks, type SessionLockTarget } from "./session-lock.js";
-import { ensureDefaultSessionDir, getDefaultSessionDirPath } from "./session-paths.js";
+import { acquireSessionLocks, releaseSessionLocks, type SessionLockTarget } from "./session-lock.ts";
+import { ensureDefaultSessionDir, getDefaultSessionDirPath } from "./session-paths.ts";
+import { getSubagentSettingsPath, readSubagentSettings, writeSubagentSettings } from "./settings.ts";
 import {
 	DEFAULT_INITIAL_CONTEXT,
 	emptyUsage,
@@ -41,7 +48,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentSessionDetails,
-} from "./types.js";
+} from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -638,7 +645,11 @@ function makePlaceholderResult(call: NormalizedCall): SingleResult {
 // Extension entry point
 // ---------------------------------------------------------------------------
 
-export function registerSubagents(omega: OmegaAPI): void {
+export interface RegisterSubagentsOptions {
+	settingsPath?: string;
+}
+
+export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOptions = {}): void {
 	omega.registerFlag("subagent-max-depth", {
 		description: "Maximum allowed subagent delegation depth (default: 3).",
 		type: "string",
@@ -654,6 +665,9 @@ export function registerSubagents(omega: OmegaAPI): void {
 
 	const depthConfig = resolveDelegationDepthConfig(omega);
 	const { currentDepth, maxDepth, canDelegate, ancestorAgentStack, preventCycles } = depthConfig;
+	const settingsPath = options.settingsPath ?? getSubagentSettingsPath();
+	const enabled = readSubagentSettings(settingsPath).enabled;
+	const runtimeEnabled = enabled && canDelegate;
 	const activeSessionIds = new Set<string>();
 	const outputArtifactDirs = new Set<string>();
 
@@ -693,64 +707,106 @@ export function registerSubagents(omega: OmegaAPI): void {
 		ctx.ui.notify(lines.join("\n"), discovery.error ? "warning" : "info");
 	};
 
-	registerOmegaCommand(omega, "list-subagent", {
+	registerOmegaCommand(omega, "subagent:list", {
 		description: "列出当前可用的 Omega 子代理",
 		handler: listSubagents,
 	});
 
-	// Auto-discover agents on session start.
-	omega.on("session_start", async (_event, ctx) => {
-		if (!canDelegate) return;
+	registerOmegaCommand(omega, "subagent:status", {
+		description: "显示 Omega 子代理功能状态",
+		handler: async (_args, ctx) => {
+			const discovery = discoverAgents(ctx.cwd, "both", shouldIncludeProjectAgents(ctx.cwd, ctx.isProjectTrusted()));
+			const agents = discovery.agents.map((agent) => `${agent.name} [${agent.source}]`).join(", ") || "无";
+			ctx.ui.notify(
+				[
+					`Subagents: ${enabled ? "已启用" : "已禁用"}`,
+					`工具状态: ${runtimeEnabled ? "已注册" : "未注册"}`,
+					`委派深度: ${currentDepth}/${maxDepth}`,
+					`循环防护: ${preventCycles ? "已启用" : "已禁用"}`,
+					`可用 Agent (${discovery.agents.length}): ${agents}`,
+					`设置文件: ${settingsPath}`,
+				].join("\n"),
+				"info",
+			);
+		},
+	});
 
-		const starterDiscovery = discoverAgentsWithStarter(
-			ctx.cwd,
-			shouldIncludeProjectAgents(ctx.cwd, ctx.isProjectTrusted()),
-		);
-		const discovery = starterDiscovery.discovery;
-		discoveredAgents = discovery.agents;
-
-		if (ctx.hasUI) {
-			if (starterDiscovery.createdAgentPath) {
-				ctx.ui.notify(
-					`Created starter subagent "${STARTER_AGENT_NAME}" at:\n${starterDiscovery.createdAgentPath}\n\nEdit this file or add more agents in the same directory to customize delegation.`,
-					"info",
-				);
-			} else if (starterDiscovery.error && discoveredAgents.length === 0) {
-				ctx.ui.notify(`No subagents found. ${starterDiscovery.error}`, "info");
-			} else if (discoveredAgents.length > 0) {
-				const list = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`).join("\n");
-				ctx.ui.notify(`Found ${discoveredAgents.length} subagent(s):\n${list}`, "info");
+	registerOmegaCommand(omega, "subagent:settings", {
+		description: "启用或禁用 Omega 子代理功能",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("/subagent:settings 需要交互式 UI。", "warning");
+				return;
 			}
-		}
+			const selected = await ctx.ui.select("Subagents 设置", ["启用", "禁用"]);
+			if (!selected) return;
+			const nextEnabled = selected === "启用";
+			if (nextEnabled === enabled) {
+				ctx.ui.notify(`Subagents 已经${enabled ? "启用" : "禁用"}。`, "info");
+				return;
+			}
+			try {
+				writeSubagentSettings({ enabled: nextEnabled }, settingsPath);
+				ctx.ui.notify(`Subagents 已${nextEnabled ? "启用" : "禁用"}，正在重新加载扩展。`, "info");
+				await ctx.reload();
+			} catch (error) {
+				ctx.ui.notify(`保存 Subagents 设置失败: ${String(error)}`, "error");
+			}
+		},
 	});
 
-	// Inject available agents into the system prompt.
-	omega.on("before_agent_start", async (event) => {
-		if (!canDelegate) return;
-		if (discoveredAgents.length === 0) return;
+	if (runtimeEnabled) {
+		// Auto-discover agents on session start.
+		omega.on("session_start", async (_event, ctx) => {
+			const starterDiscovery = discoverAgentsWithStarter(
+				ctx.cwd,
+				shouldIncludeProjectAgents(ctx.cwd, ctx.isProjectTrusted()),
+			);
+			const discovery = starterDiscovery.discovery;
+			discoveredAgents = discovery.agents;
 
-		return {
-			systemPrompt:
-				event.systemPrompt +
-				formatAvailableSubagentsPrompt(discoveredAgents, {
-					currentDepth,
-					maxDepth,
-					preventCycles,
-					ancestorAgentStack,
-				}),
-		};
-	});
+			if (ctx.hasUI) {
+				if (starterDiscovery.createdAgentPath) {
+					ctx.ui.notify(
+						`Created starter subagent "${STARTER_AGENT_NAME}" at:\n${starterDiscovery.createdAgentPath}\n\nEdit this file or add more agents in the same directory to customize delegation.`,
+						"info",
+					);
+				} else if (starterDiscovery.error && discoveredAgents.length === 0) {
+					ctx.ui.notify(`No subagents found. ${starterDiscovery.error}`, "info");
+				} else if (discoveredAgents.length > 0) {
+					const list = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`).join("\n");
+					ctx.ui.notify(`Found ${discoveredAgents.length} subagent(s):\n${list}`, "info");
+				}
+			}
+		});
 
-	omega.on("tool_result", (event) => {
-		if (event.toolName !== "subagent") return;
-		const details = event.details as Partial<SubagentDetails> | undefined;
-		if (details?.kind === "omega-subagent" && details.failed === true) {
-			return { isError: true };
-		}
-	});
+		// Inject available agents into the system prompt.
+		omega.on("before_agent_start", async (event) => {
+			if (discoveredAgents.length === 0) return;
+
+			return {
+				systemPrompt:
+					event.systemPrompt +
+					formatAvailableSubagentsPrompt(discoveredAgents, {
+						currentDepth,
+						maxDepth,
+						preventCycles,
+						ancestorAgentStack,
+					}),
+			};
+		});
+
+		omega.on("tool_result", (event) => {
+			if (event.toolName !== "subagent") return;
+			const details = event.details as Partial<SubagentDetails> | undefined;
+			if (details?.kind === "omega-subagent" && details.failed === true) {
+				return { isError: true };
+			}
+		});
+	}
 
 	// Register the subagent tool.
-	if (canDelegate) {
+	if (runtimeEnabled) {
 		omega.registerTool({
 			name: "subagent",
 			label: "Subagent",

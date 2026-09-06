@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ForkEffort, ForkEffortProfile, ForkThinkingLevel } from "./types.js";
+import type { ForkEffort, ForkEffortProfile, ForkThinkingLevel } from "./types.ts";
 
 export const EFFORT_LEVELS = ["fast", "balanced", "deep"] as const;
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;

@@ -31,6 +31,15 @@ systemPromptMode: replace
 
 ## 调用方式
 
+功能开关与状态：
+
+```text
+/subagent:settings
+/subagent:status
+```
+
+设置保存在 Omega 用户目录的 `subagents.json` 中。修改开关后 Omega 会重新加载扩展；禁用时不会注册 `subagent` 工具、自动发现 Agent 或向 system prompt 注入 Agent 列表。显式执行状态或列表命令仍可读取 Agent 定义。
+
 列出 Agent：
 
 ```json

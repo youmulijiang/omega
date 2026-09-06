@@ -8,7 +8,7 @@
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getFinalAssistantText } from "./runner-events.js";
-import { type ForkResult, isResultError, isResultSuccess } from "./types.js";
+import { type ForkResult, isResultError, isResultSuccess } from "./types.ts";
 
 const COLLAPSED_TOOL_COUNT = 8;
 const COLLAPSED_OUTPUT_LINES = 3;

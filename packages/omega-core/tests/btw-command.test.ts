@@ -4,7 +4,7 @@ import type {
 	ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { registerBtw } from "../src/btw/index.ts";
+import { publishBringToMainResult, registerBtw } from "../src/btw/index.ts";
 
 vi.mock("../src/btw/transcript-pager.ts", () => ({
 	BtwAnsweringView: class {},
@@ -50,6 +50,29 @@ describe("registerBtw", () => {
 				selected: { model, auth: { apiKey: "test-key" } },
 				thinkingLevel: "off",
 			}),
+		);
+	});
+
+	it("publishes brought-back context as a labelled transcript message without changing the editor", async () => {
+		const setEditorText = vi.fn();
+		const notify = vi.fn();
+		const sendMessage = vi.fn();
+		const ctx = { ui: { notify, setEditorText } } as unknown as ExtensionCommandContext;
+		const omega = { sendMessage } as unknown as Pick<ExtensionAPI, "sendMessage">;
+		const summary = { lines: 2, messages: 2, tokens: 12 };
+
+		const result = await publishBringToMainResult("<btw_context>result</btw_context>", ctx, summary, omega);
+
+		expect(result).toBe("loaded");
+		expect(setEditorText).not.toHaveBeenCalled();
+		expect(sendMessage).toHaveBeenCalledWith(
+			{
+				customType: "btw-result",
+				content: "<btw_context>result</btw_context>",
+				display: true,
+				details: summary,
+			},
+			{ triggerTurn: false },
 		);
 	});
 });

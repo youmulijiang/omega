@@ -18,7 +18,7 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	type UsageStats,
-} from "./types.js";
+} from "./types.ts";
 
 const COLLAPSED_LINE_COUNT = 8;
 
