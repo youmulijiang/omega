@@ -206,10 +206,26 @@ Step 'Compiling Windows binaries...'
 $agentDir = Join-Path $repoRoot 'packages/coding-agent'
 Set-Location $agentDir
 $omegaEntry = Join-Path $repoRoot 'packages/omega-core/dist/bun/cli.js'
+$omegaDist = Join-Path $repoRoot 'packages/omega-core/dist'
 $imageWorker = Join-Path $agentDir 'src/utils/image-resize-worker.ts'
 
 if (-not (Test-Path -LiteralPath $omegaEntry)) {
     Die "OMEGA binary entry is missing: $omegaEntry. Run without -SkipBuild first."
+}
+
+# Bun only embeds files that are part of the compile inputs. Omega loads its
+# bundled prompts, agent definitions, and contract evidence through fs at
+# runtime, so include those non-code resources explicitly in the executable.
+$omegaAssetPaths = @(
+    (Join-Path $omegaDist 'prompts'),
+    (Join-Path $omegaDist 'subagents/agents'),
+    (Join-Path $omegaDist 'background/core/delegate/hook-contract-evidence.json')
+)
+$missingOmegaAssets = @($omegaAssetPaths | Where-Object { -not (Test-Path -LiteralPath $_) })
+$omegaAssets = @($omegaAssetPaths | ForEach-Object { "--asset=$_" })
+
+if ($missingOmegaAssets.Count -gt 0) {
+    Die "OMEGA bundled assets are missing: $($missingOmegaAssets -join ', '). Run without -SkipBuild first."
 }
 
 # Clean only the requested platform outputs. Other artifacts in OutDir are preserved.
@@ -236,6 +252,7 @@ foreach ($plat in $platforms) {
         --target=$bunTarget `
         $omegaEntry `
         $imageWorker `
+        @omegaAssets `
         --outfile $exePath
 
     if ($LASTEXITCODE -ne 0) { Die "Bun compile failed for $plat." }

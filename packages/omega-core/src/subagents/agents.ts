@@ -91,6 +91,16 @@ Keep the response concise, structured, and optimized for agent handoff.
 
 const BUNDLED_AGENTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "agents");
 
+interface BunEmbeddedFile {
+	name: string;
+	text(): Promise<string>;
+}
+
+interface BunRuntime {
+	embeddedFiles?: readonly BunEmbeddedFile[];
+	peek<T>(promise: Promise<T>): T | Promise<T>;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -167,12 +177,16 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 }
 
 /** Parse a single agent markdown file into an AgentConfig. Returns null on skip. */
-function parseAgentFile(filePath: string, source: AgentSource): AgentConfig | null {
+function parseAgentFile(filePath: string, source: AgentSource, bundledContent?: string): AgentConfig | null {
 	let content: string;
-	try {
-		content = fs.readFileSync(filePath, "utf-8");
-	} catch {
-		return null;
+	if (bundledContent === undefined) {
+		try {
+			content = fs.readFileSync(filePath, "utf-8");
+		} catch {
+			return null;
+		}
+	} else {
+		content = bundledContent;
 	}
 
 	let parsed: { frontmatter: Record<string, unknown>; body: string };
@@ -235,6 +249,23 @@ function parseAgentFile(filePath: string, source: AgentSource): AgentConfig | nu
 		source,
 		filePath,
 	};
+}
+
+/** Load raw assets embedded by `bun build --compile --asset` without async initialization. */
+function loadAgentsFromBunExecutable(): AgentConfig[] {
+	const bun = (globalThis as typeof globalThis & { Bun?: BunRuntime }).Bun;
+	if (!bun?.embeddedFiles) return [];
+
+	const agents: AgentConfig[] = [];
+	for (const file of bun.embeddedFiles) {
+		const normalizedName = file.name.replaceAll("\\", "/");
+		if (!/(?:^|\/)(?:subagents\/)?agents\/[^/]+\.md$/u.test(normalizedName)) continue;
+		const content = bun.peek(file.text());
+		if (typeof content !== "string") continue;
+		const agent = parseAgentFile(file.name, "builtin", content);
+		if (agent) agents.push(agent);
+	}
+	return agents;
 }
 
 /** Load all agent definitions from a directory. */
@@ -303,7 +334,8 @@ function writeStarterAgentFile(filePath: string): void {
 export function discoverAgents(cwd: string, scope: AgentScope, includeProjectAgents = true): AgentDiscoveryResult {
 	const userAgentsDir = getUserAgentsDir();
 	const projectAgentsDir = includeProjectAgents ? findNearestProjectAgentsDir(cwd) : null;
-	const builtinAgents = loadAgentsFromDir(BUNDLED_AGENTS_DIR, "builtin");
+	const diskBuiltinAgents = loadAgentsFromDir(BUNDLED_AGENTS_DIR, "builtin");
+	const builtinAgents = diskBuiltinAgents.length > 0 ? diskBuiltinAgents : loadAgentsFromBunExecutable();
 
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userAgentsDir, "user");
 	const projectAgents =
