@@ -11,6 +11,7 @@ import {
 } from "../src/permissions/scope.ts";
 
 type EventHandler = (...args: never[]) => unknown;
+type CommandHandler = Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
 
 const temporaryDirectories: string[] = [];
 
@@ -73,6 +74,7 @@ describe("scope permissions", () => {
 		const handlers = new Map<string, EventHandler>();
 		const pi = {
 			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
 		} as unknown as ExtensionAPI;
 		const confirm = vi.fn().mockResolvedValue(true);
 		const ctx = {
@@ -116,7 +118,10 @@ describe("scope permissions", () => {
 		writeFileSync(join(agentDirectory, "scope.md"), SCOPE_CONTENT, "utf8");
 
 		const handlers = new Map<string, EventHandler>();
-		const pi = { on: (event: string, handler: EventHandler) => handlers.set(event, handler) } as unknown as ExtensionAPI;
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
 		const ctx = {
 			cwd,
 			hasUI: true,
@@ -131,5 +136,184 @@ describe("scope permissions", () => {
 		);
 
 		expect(result).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("用户拒绝") }));
+	});
+
+	it("asks before destructive deletion and only remembers an exact command for the session", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-dangerous-command-"));
+		temporaryDirectories.push(cwd);
+		const agentDirectory = join(cwd, ".omega", "agent");
+		mkdirSync(agentDirectory, { recursive: true });
+		writeFileSync(join(agentDirectory, "permissions.json"), JSON.stringify({ level: "ask for approval" }), "utf8");
+		const handlers = new Map<string, EventHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn().mockResolvedValueOnce("允许本会话中的相同命令").mockResolvedValueOnce("拒绝执行");
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify: vi.fn(), select, setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		const first = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm -rf *" } } as never,
+			ctx as never,
+		);
+		const repeated = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm -rf *" } } as never,
+			ctx as never,
+		);
+		const different = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm -rf ./generated" } } as never,
+			ctx as never,
+		);
+
+		expect(first).toBeUndefined();
+		expect(repeated).toBeUndefined();
+		expect(different).toEqual({ block: true, reason: "用户取消执行" });
+		expect(select).toHaveBeenCalledTimes(2);
+		expect(select).toHaveBeenNthCalledWith(
+			1,
+			expect.stringContaining("删除命令包含通配符"),
+			["仅允许本次执行", "允许本会话中的相同命令", "拒绝执行"],
+		);
+	});
+
+	it("loads project JSON rules with last-match overrides", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-permission-policy-"));
+		temporaryDirectories.push(cwd);
+		const agentDirectory = join(cwd, ".omega", "agent");
+		mkdirSync(agentDirectory, { recursive: true });
+		writeFileSync(
+			join(agentDirectory, "permissions.json"),
+			JSON.stringify({ level: "ask for approval", bash: { "rm *": "allow", "echo forbidden": "deny", "curl *": "ask" } }),
+			"utf8",
+		);
+		const handlers = new Map<string, EventHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn().mockResolvedValue("仅允许本次执行");
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify: vi.fn(), select, setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		const allowed = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm temporary.txt" } } as never,
+			ctx as never,
+		);
+		const denied = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "echo forbidden" } } as never,
+			ctx as never,
+		);
+		const asked = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "curl https://example.test" } } as never,
+			ctx as never,
+		);
+
+		expect(allowed).toBeUndefined();
+		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("权限策略拒绝") }));
+		expect(asked).toBeUndefined();
+		expect(select).toHaveBeenCalledOnce();
+	});
+
+	it("never allows built-in catastrophic operations even in full access", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-hard-deny-"));
+		temporaryDirectories.push(cwd);
+		const handlers = new Map<string, EventHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify: vi.fn(), select: vi.fn(), setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		const filesystem = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm -rf /" } } as never,
+			ctx as never,
+		);
+		const database = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "psql -c 'DROP DATABASE production'" } } as never,
+			ctx as never,
+		);
+
+		expect(filesystem).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("整个文件系统") }));
+		expect(database).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("数据库") }));
+	});
+
+	it("switches permission levels with /permissions", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-permission-level-"));
+		temporaryDirectories.push(cwd);
+		const handlers = new Map<string, EventHandler>();
+		const commands = new Map<string, CommandHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: (name: string, command: { handler: CommandHandler }) => commands.set(name, command.handler),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn().mockResolvedValue("仅允许本次执行");
+		const notify = vi.fn();
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify, select, setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		await commands.get("permissions")?.("ask for approval", ctx as Parameters<CommandHandler>[1]);
+		await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "nmap target.test" } } as never,
+			ctx as never,
+		);
+		await commands.get("permissions")?.("approve for me", ctx as Parameters<CommandHandler>[1]);
+		await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "nmap another.test" } } as never,
+			ctx as never,
+		);
+
+		expect(select).toHaveBeenCalledOnce();
+		expect(notify).toHaveBeenCalledWith("权限等级已切换为：approve for me", "info");
+	});
+
+	it("forces approval when deleting more than twenty files", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-bulk-delete-"));
+		temporaryDirectories.push(cwd);
+		const target = join(cwd, "generated");
+		mkdirSync(target);
+		for (let index = 0; index < 21; index += 1) writeFileSync(join(target, `${String(index)}.txt`), "x");
+		const handlers = new Map<string, EventHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn().mockResolvedValue("拒绝执行");
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify: vi.fn(), select, setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		const result = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "rm -rf generated" } } as never,
+			ctx as never,
+		);
+
+		expect(result).toEqual({ block: true, reason: "用户取消执行" });
+		expect(select).toHaveBeenCalledWith(expect.stringContaining("超过 20 个"), expect.any(Array));
 	});
 });

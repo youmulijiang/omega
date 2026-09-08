@@ -28,6 +28,7 @@ describe("Omega init command", () => {
 		expect(result.created).toEqual([
 			join(".omega", "agent", "AGENTS.md"),
 			join(".omega", "agent", "settings.json"),
+			join(".omega", "agent", "permissions.json"),
 			join(".omega", "agent", "scope.md"),
 		]);
 		expect(readFileSync(join(workspace, ".omega", "agent", "AGENTS.md"), "utf8")).toContain(
@@ -35,6 +36,11 @@ describe("Omega init command", () => {
 		);
 		expect(JSON.parse(readFileSync(join(workspace, ".omega", "agent", "settings.json"), "utf8"))).toEqual({
 			collapseChangelog: true,
+		});
+		expect(JSON.parse(readFileSync(join(workspace, ".omega", "agent", "permissions.json"), "utf8"))).toMatchObject({
+			level: "full access",
+			defaultPolicy: { bash: "allow", mcp: "allow", tools: "allow" },
+			bash: { "rm *": "ask", "mkfs*": "deny" },
 		});
 		const scope = readFileSync(join(workspace, ".omega", "agent", "scope.md"), "utf8");
 		expect(scope).toContain("## Inclusion");
@@ -51,7 +57,7 @@ describe("Omega init command", () => {
 		const result = await initializeOmegaWorkspace(workspace);
 
 		expect(result.created).toEqual([]);
-		expect(result.existing).toHaveLength(3);
+		expect(result.existing).toHaveLength(4);
 		expect(readFileSync(agentsPath, "utf8")).toBe("custom instructions");
 	});
 

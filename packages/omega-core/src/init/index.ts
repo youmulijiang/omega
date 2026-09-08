@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
+import { defaultPermissionPolicyJson } from "../permissions/policy.ts";
 
 const INITIAL_FILES = {
 	"AGENTS.md": [
@@ -11,6 +12,7 @@ const INITIAL_FILES = {
 		"",
 	].join("\n"),
 	"settings.json": `${JSON.stringify({ collapseChangelog: true }, null, 2)}\n`,
+	"permissions.json": defaultPermissionPolicyJson(),
 	"scope.md": [
 		"# scope.md",
 		"",
