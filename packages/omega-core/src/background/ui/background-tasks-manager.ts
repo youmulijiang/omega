@@ -191,6 +191,8 @@ export interface TaskManagerOptions {
 	stopAllRunning: () => Promise<StopAllResult>;
 	rerunTask: (task: BgTask) => Promise<BgTask>;
 	showOutputPath: (task: BgTask) => void;
+	setDisplayedTask: (task: BgTask | undefined) => void;
+	isDisplayed: (taskId: string) => boolean;
 	markSeen: (taskId: string) => void;
 	markFinishedSeen: (taskIds: string[]) => void;
 	isSeen: (taskId: string) => boolean;
@@ -339,6 +341,11 @@ export class BackgroundTasksManager implements Component {
 			if (task) this.showOutputPathFromUi(task);
 			return;
 		}
+		if (data === "s" || data === "S") {
+			const task = tasks[this.selectedIndex];
+			if (task) this.toggleDisplayedTask(task);
+			return;
+		}
 		if (data === "h" || data === "H") {
 			this.showHistory = !this.showHistory;
 			this.selectedIndex = 0;
@@ -387,7 +394,9 @@ export class BackgroundTasksManager implements Component {
 		}
 		if ((data === "c" || data === "C") && task) {
 			this.showOutputPathFromUi(task);
+			return;
 		}
+		if ((data === "s" || data === "S") && task) this.toggleDisplayedTask(task);
 	}
 
 	private currentTasks(): BgTask[] {
@@ -490,6 +499,19 @@ export class BackgroundTasksManager implements Component {
 	private showOutputPathFromUi(task: BgTask): void {
 		this.options.showOutputPath(task);
 		this.actionMessage = `Output path shown for ${taskDisplayName(task)}.`;
+		this.tui.requestRender();
+	}
+
+	private toggleDisplayedTask(task: BgTask): void {
+		if (this.options.isDisplayed(task.id)) {
+			this.options.setDisplayedTask(undefined);
+			this.actionMessage = `Stopped showing ${taskDisplayName(task)} output.`;
+		} else if (task.status !== "running") {
+			this.actionMessage = `${taskDisplayName(task)} is ${task.status}; only running output can be shown.`;
+		} else {
+			this.options.setDisplayedTask(task);
+			this.actionMessage = `Showing ${taskDisplayName(task)} output above the editor.`;
+		}
 		this.tui.requestRender();
 	}
 
@@ -609,6 +631,7 @@ export class BackgroundTasksManager implements Component {
 				const index = this.listScroll + i;
 				const selected = index === this.selectedIndex;
 				const pointer = selected ? "›" : " ";
+				const displayedMark = this.options.isDisplayed(task.id) ? this.theme.fg("accent", "◆") : " ";
 				const unseen = task.status !== "running" && !this.options.isSeen(task.id);
 				const unreadMark = unseen ? this.theme.fg("warning", "●") : " ";
 				const rawName = truncateChars(taskDisplayName(task), maxNameWidth);
@@ -634,7 +657,7 @@ export class BackgroundTasksManager implements Component {
 				const activity = this.activityLabel(task);
 				const activityText = activity ? ` ${this.theme.fg("warning", activity)}` : "";
 				const exit = task.status !== "running" ? this.theme.fg("dim", formatExitCodeText(task.exitCode)) : "";
-				let row = ` ${pointer} ${unreadMark} ${name} ${this.theme.fg("dim", task.id)} ${this.theme.fg("dim", "·")} ${status}${exit} ${this.theme.fg("dim", `${runtime} ${size}`)}${contextText}${modelText}${tokenText}${toolText}${activityText}`;
+				let row = ` ${pointer} ${unreadMark}${displayedMark} ${name} ${this.theme.fg("dim", task.id)} ${this.theme.fg("dim", "·")} ${status}${exit} ${this.theme.fg("dim", `${runtime} ${size}`)}${contextText}${modelText}${tokenText}${toolText}${activityText}`;
 				if (selected) row = lightBlue(padAnsi(truncateToWidth(row, width - 4), width - 4));
 				body.push(row);
 			}
@@ -650,7 +673,7 @@ export class BackgroundTasksManager implements Component {
 			"bg tasks focused",
 			subtitle,
 			body,
-			` ${this.theme.fg("dim", `↑/↓ select · Enter logs · k stop · a stop all · h ${this.showHistory ? "hide" : "show"} history · R rerun · c path · x close`)}`,
+			` ${this.theme.fg("dim", `↑/↓ select · Enter logs · s show/hide output · k stop · a stop all · h ${this.showHistory ? "hide" : "show"} history · R rerun · c path · x close`)}`,
 			width,
 		);
 	}
@@ -689,7 +712,7 @@ export class BackgroundTasksManager implements Component {
 		body.push(...this.renderOutputBox(width - 4));
 		if (this.actionMessage) body.push(this.theme.fg("warning", ` ${this.actionMessage}`));
 		const subtitle = `${task.id} · ${task.status === "running" ? "live tail refreshes every second" : "final output"}`;
-		const footer = ` ${this.theme.fg("dim", "↑/↓ scroll · ← list · r refresh · k stop · R rerun · c path · x close")}`;
+		const footer = ` ${this.theme.fg("dim", "↑/↓ scroll · ← list · r refresh · s show/hide output · k stop · R rerun · c path · x close")}`;
 		return this.frame(`bg: ${truncateChars(name, 64)}`, subtitle, body, footer, width);
 	}
 

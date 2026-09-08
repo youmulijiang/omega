@@ -11,6 +11,8 @@ import { resolveDelegateChildExtensionPath } from "../src/background/core/delega
 import { BackgroundTaskRegistry } from "../src/background/core/registry.ts";
 import { resolveFusionChildExtensionPath } from "../src/background/core/fusion/pi-child.ts";
 
+type CommandHandler = Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -57,8 +59,9 @@ describe("Omega background integration", () => {
 			"bg_kill",
 		]);
 		expect(commands.map((command) => command.name)).toEqual(
-			expect.arrayContaining(["bg", "tasks", "bg-tasks", "bg-clear", "jobs", "logs", "kill", "fusion"]),
+			expect.arrayContaining(["bg", "tasks", "bg:tasks", "bg:clear", "jobs", "logs", "kill", "fusion"]),
 		);
+		expect(commands.map((command) => command.name)).not.toEqual(expect.arrayContaining(["bg-tasks", "bg-clear"]));
 		expect(commands.every((command) => command.showSourceTag === false)).toBe(true);
 		expect(listeners.has("pi-background-tasks:request:v1")).toBe(true);
 		expect(pi.registerProvider).toHaveBeenCalledWith("anthropic", expect.objectContaining({ api: "anthropic-messages" }));
@@ -73,6 +76,43 @@ describe("Omega background integration", () => {
 			expect(path).toContain(join("background", "extensions"));
 			expect(path.endsWith(".ts")).toBe(true);
 		}
+	});
+
+	it("clears one finished notice by task name and all notices when omitted", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "omega-background-clear-"));
+		temporaryDirectories.push(cwd);
+		const commands = new Map<string, CommandHandler>();
+		const notify = vi.fn();
+		const sendMessage = vi.fn();
+		const pi = {
+			appendEntry: vi.fn(),
+			events: { emit: vi.fn(), on: vi.fn(() => () => undefined) },
+			on: vi.fn(),
+			registerCommand: (name: string, options: { handler: CommandHandler }) => commands.set(name, options.handler),
+			registerMessageRenderer: vi.fn(),
+			registerProvider: vi.fn(),
+			registerShortcut: vi.fn(),
+			registerTool: vi.fn(),
+			sendMessage,
+		} as unknown as ExtensionAPI;
+		registerBackground(pi as unknown as OmegaAPI);
+		const context = {
+			cwd,
+			hasUI: true,
+			modelRegistry: { getAll: () => [] },
+			ui: { notify, setStatus: vi.fn(), setWidget: vi.fn() },
+		} as unknown as Parameters<CommandHandler>[1];
+		const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("")}`;
+
+		await commands.get("bg")?.(`--name "alpha task" ${command}`, context);
+		await commands.get("bg")?.(`--name "beta task" ${command}`, context);
+		await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+
+		await commands.get("bg:clear")?.("alpha task", context);
+		expect(notify).toHaveBeenLastCalledWith("Cleared finished background task notice for alpha task.", "info");
+
+		await commands.get("bg:clear")?.("", context);
+		expect(notify).toHaveBeenLastCalledWith("Cleared 1 finished background task notice.", "info");
 	});
 
 	it("runs a shell task, stores Omega artifacts, and returns bounded logs", async () => {

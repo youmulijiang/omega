@@ -16,6 +16,7 @@ import {
 	type BgStatusDetails,
 	type BgTask,
 	type BgTaskSnapshot,
+	boundedRead,
 	DEFAULT_LOG_BYTES,
 	deriveCompletionDeliveryGuidance,
 	deriveTaskNameFromCommand,
@@ -51,6 +52,8 @@ import {
 
 const STATUS_INTERVAL_MS = 1000;
 const COMMAND_PREVIEW_CHARS = 90;
+const DISPLAYED_OUTPUT_BYTES = 16 * 1024;
+const DISPLAYED_OUTPUT_LINES = 6;
 const LIGHT_BLUE_BG = "\x1b[48;2;183;223;255m";
 const LIGHT_BLUE_FG = "\x1b[38;2;11;70;110m";
 const ANSI_RESET = "\x1b[0m";
@@ -184,6 +187,8 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 	const seenTaskIds = new Set<string>();
 	let currentCtx: ExtensionContext | undefined;
 	let dockOpen = false;
+	let displayedTaskId: string | undefined;
+	let displayedOutputRevision = 0;
 	let statusInterval: NodeJS.Timeout | undefined;
 
 	const registry = new BackgroundTaskRegistry({
@@ -227,21 +232,29 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		return registry.allTasks().filter((task) => task.status !== "running" && !seenTaskIds.has(task.id));
 	}
 
-	function clearFinishedNotices(ctx = currentCtx): number {
-		const unseen = unseenFinishedTasks();
+	function clearFinishedNotices(ctx = currentCtx, taskName?: string): number {
+		const normalizedTaskName = normalizeTaskName(taskName);
+		const unseen = unseenFinishedTasks().filter(
+			(task) => normalizedTaskName === undefined || taskDisplayName(task) === normalizedTaskName,
+		);
 		for (const task of unseen) seenTaskIds.add(task.id);
 		updateUi(ctx);
 		return unseen.length;
 	}
 
-	function notifyClearFinishedNotices(ctx: ExtensionContext): void {
+	function notifyClearFinishedNotices(ctx: ExtensionContext, taskName?: string): void {
 		currentCtx = ctx;
-		const cleared = clearFinishedNotices(ctx);
+		const normalizedTaskName = normalizeTaskName(taskName);
+		const cleared = clearFinishedNotices(ctx, normalizedTaskName);
 		if (!ctx.hasUI) return;
 		ctx.ui.notify(
 			cleared > 0
-				? `Cleared ${String(cleared)} finished background task notice${cleared === 1 ? "" : "s"}.`
-				: "No finished background task notices to clear.",
+				? normalizedTaskName === undefined
+					? `Cleared ${String(cleared)} finished background task notice${cleared === 1 ? "" : "s"}.`
+					: `Cleared finished background task notice for ${normalizedTaskName}.`
+				: normalizedTaskName === undefined
+					? "No finished background task notices to clear."
+					: `No finished background task notice found for ${normalizedTaskName}.`,
 			cleared > 0 ? "info" : "warning",
 		);
 	}
@@ -256,7 +269,9 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 			const unseenStopped = allTasks.filter((task) => task.status === "killed" && !seenTaskIds.has(task.id));
 			const unseenDone = allTasks.filter((task) => task.status === "completed" && !seenTaskIds.has(task.id));
 			const unseenFinishedCount = unseenFailed.length + unseenStopped.length + unseenDone.length;
-			ctx.ui.setWidget("background-tasks", undefined);
+			const displayedTask = displayedTaskId ? running.find((task) => task.id === displayedTaskId) : undefined;
+			if (displayedTaskId && !displayedTask) displayedTaskId = undefined;
+			void updateDisplayedOutput(ctx, displayedTask);
 			if (running.length === 0 && unseenFinishedCount === 0) {
 				ctx.ui.setStatus("background-tasks", undefined);
 				return;
@@ -267,7 +282,7 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 			if (unseenFailed.length > 0) parts.push(`${String(unseenFailed.length)} failed`);
 			if (unseenStopped.length > 0) parts.push(`${String(unseenStopped.length)} stopped`);
 			if (unseenDone.length > 0) parts.push(`${String(unseenDone.length)} done`);
-			const entryHint = dockOpen ? "focused" : `Shift↓${unseenFinishedCount > 0 ? " · /bg-clear" : ""}`;
+			const entryHint = dockOpen ? "focused" : `Shift↓${unseenFinishedCount > 0 ? " · /bg:clear" : ""}`;
 			const segments = [...parts, entryHint];
 			const label = ` bg ${segments.join(" · ")} `;
 			ctx.ui.setStatus("background-tasks", lightBlue(label));
@@ -276,6 +291,31 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 				`[background-tasks] UI update failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
 			currentCtx = undefined;
+		}
+	}
+
+	async function updateDisplayedOutput(ctx: ExtensionContext, task: BgTask | undefined): Promise<void> {
+		const revision = ++displayedOutputRevision;
+		if (!task) {
+			ctx.ui.setWidget("background-tasks", undefined);
+			return;
+		}
+		try {
+			const read = await boundedRead(task.outputAbsPath, DISPLAYED_OUTPUT_BYTES, true);
+			if (revision !== displayedOutputRevision || displayedTaskId !== task.id) return;
+			const outputLines = read.content.replace(/\r/g, "").split("\n");
+			if (outputLines.at(-1) === "") outputLines.pop();
+			const visibleLines = outputLines.slice(-DISPLAYED_OUTPUT_LINES);
+			ctx.ui.setWidget("background-tasks", [
+				lightBlue(` bg output · ${taskDisplayName(task)} · ${task.id} `),
+				...(visibleLines.length > 0 ? visibleLines : ["No output yet"]),
+			]);
+		} catch (error) {
+			if (revision !== displayedOutputRevision || displayedTaskId !== task.id) return;
+			ctx.ui.setWidget("background-tasks", [
+				lightBlue(` bg output · ${taskDisplayName(task)} · ${task.id} `),
+				`Output unavailable: ${error instanceof Error ? error.message : String(error)}`,
+			]);
 		}
 	}
 
@@ -341,6 +381,11 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 								"info",
 							);
 						},
+						setDisplayedTask: (task: BackgroundTaskForUi | undefined) => {
+							displayedTaskId = task?.id;
+							updateUi(ctx);
+						},
+						isDisplayed: (taskId: string) => displayedTaskId === taskId,
 						markSeen: (taskId: string) => {
 							seenTaskIds.add(taskId);
 							updateUi(ctx);
@@ -474,7 +519,7 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("bg-tasks", {
+	pi.registerCommand("bg:tasks", {
 		description: "Open the background task manager UI",
 		showSourceTag: false,
 		handler: async (args, ctx) => {
@@ -483,11 +528,21 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("bg-clear", {
-		description: "Clear finished background task footer notices",
+	pi.registerCommand("bg:clear", {
+		description: "Clear all finished background task footer notices, or one by task name",
 		showSourceTag: false,
-		handler: (_args, ctx) => {
-			notifyClearFinishedNotices(ctx);
+		getArgumentCompletions: (prefix) => {
+			const normalizedPrefix = normalizeTaskName(prefix) ?? "";
+			const names = new Set(
+				unseenFinishedTasks()
+					.map((task) => taskDisplayName(task))
+					.filter((name) => name.startsWith(normalizedPrefix)),
+			);
+			const matches = [...names].slice(0, 20).map((name) => ({ value: name, label: name }));
+			return matches.length > 0 ? matches : null;
+		},
+		handler: (args, ctx) => {
+			notifyClearFinishedNotices(ctx, args);
 			return Promise.resolve();
 		},
 	});
@@ -500,7 +555,7 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerShortcut("ctrl+alt+c" satisfies KeyId, {
-		description: "Clear finished background task footer notices (terminal-dependent fallback for /bg-clear)",
+		description: "Clear finished background task footer notices (terminal-dependent fallback for /bg:clear)",
 		handler: (ctx) => {
 			notifyClearFinishedNotices(ctx);
 		},
