@@ -100,7 +100,7 @@ function parseServer(name: string, value: unknown): McpServerConfig {
 		}
 		return {
 			...common,
-			type: value.type === "streamable-http" ? "streamable-http" : "http",
+			type: value.type === "streamable-http" || value.type === "sse" ? value.type : "http",
 			url: value.url,
 			...(isStringRecord(value.headers) ? { headers: value.headers } : {}),
 		};

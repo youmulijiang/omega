@@ -34,7 +34,7 @@ export interface McpStdioServer extends McpServerBase {
 }
 
 export interface McpHttpServer extends McpServerBase {
-	type?: "http" | "streamable-http";
+	type?: "http" | "streamable-http" | "sse";
 	url: string;
 	headers?: Record<string, string>;
 }

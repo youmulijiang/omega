@@ -23,15 +23,23 @@ import { type SmitherySearchResult, searchSmitheryRegistry, smitheryConfigName }
 
 type McpAction = "status" | "list_tools" | "call" | "reconnect" | "authenticate" | "logout";
 
-function serverListText(states: McpServerState[]): string {
+function authDescription(state: McpServerState): string {
+	if ("command" in state.config) return "Unsupported";
+	if (Object.keys(state.config.headers ?? {}).some((name) => name.toLowerCase() === "authorization")) {
+		return "HTTP header";
+	}
+	if (state.config.auth !== "oauth") return "Unsupported";
+	return state.status === "needs-auth" ? "OAuth (authentication required)" : "OAuth";
+}
+
+export function formatMcpServerList(states: McpServerState[]): string {
 	if (states.length === 0) return "No MCP servers configured. Run /mcp to add one.";
 	return states
 		.map((state) => {
-			const transport = "command" in state.config ? `stdio · ${state.config.command}` : `http · ${state.config.url}`;
-			const enabled = state.status === "disabled" ? "disabled" : "enabled";
-			return `- ${state.name}: ${transport} (${enabled})`;
+			const tools = state.tools.map((tool) => tool.name).join(", ") || "None";
+			return `• ${state.name}\n   • Auth: ${authDescription(state)}\n   • Tools: ${tools}`;
 		})
-		.join("\n");
+		.join("\n\n");
 }
 
 function statusText(states: McpServerState[]): string {
@@ -342,7 +350,7 @@ export function registerMcp(omega: OmegaAPI): void {
 		handler: async (_args, ctx) => {
 			try {
 				const active = await getManager(ctx.cwd);
-				ctx.ui.notify(serverListText(active.getStates()), "info");
+				ctx.ui.notify(formatMcpServerList(active.getStates()), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}

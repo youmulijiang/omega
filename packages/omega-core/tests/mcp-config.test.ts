@@ -29,6 +29,24 @@ describe("Omega MCP config", () => {
 		expect(config.mcpServers.remote).toMatchObject({ type: "http", url: "https://example.com/mcp" });
 	});
 
+	it("preserves Claude-compatible SSE servers with static authentication headers", () => {
+		const config = parseMcpConfig({
+			mcpServers: {
+				burp: {
+					type: "sse",
+					url: "http://127.0.0.1:9876/",
+					headers: { Authorization: "Bearer test" },
+				},
+			},
+		});
+
+		expect(config.mcpServers.burp).toEqual({
+			type: "sse",
+			url: "http://127.0.0.1:9876/",
+			headers: { Authorization: "Bearer test" },
+		});
+	});
+
 	it("writes project configuration atomically and can remove a server", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "omega-mcp-"));
 		temporaryDirectories.push(cwd);
