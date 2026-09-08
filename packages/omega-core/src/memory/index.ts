@@ -42,6 +42,7 @@ import {
 	serializeConversation,
 } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../api.ts";
+import { registerOmegaCommand } from "../commands/register.ts";
 
 // ---------------------------------------------------------------------------
 // Paths (mutable for testing via _setBaseDir / _resetBaseDir)
@@ -1395,6 +1396,68 @@ export function getMemoryInventory(): {
 	};
 }
 
+export function formatMemoryContents(): string {
+	ensureDirs();
+	const content = readFileSafe(MEMORY_FILE);
+	return content?.trim() ? content : "MEMORY.md is empty or does not exist.";
+}
+
+export function formatMemoryStatus(): string {
+	ensureDirs();
+	const inv = getMemoryInventory();
+	const sections = [
+		"# Memory status",
+		"",
+		`- Memory dir: ${inv.dir}`,
+		`- MEMORY.md: ${inv.longTermChars} chars`,
+		`- Scratchpad: ${inv.scratchpadOpen} open / ${inv.scratchpadTotal} total`,
+		`- Daily logs: ${inv.dailyCount}${inv.latestDaily ? ` (latest ${inv.latestDaily})` : ""}`,
+		"",
+		formatPreviewBlock("## MEMORY.md", readFileSafe(MEMORY_FILE) ?? "", "middle"),
+		"",
+		formatPreviewBlock("## SCRATCHPAD.md", readFileSafe(SCRATCHPAD_FILE) ?? "", "start"),
+	];
+
+	let dailyFiles: string[] = [];
+	try {
+		dailyFiles = fs
+			.readdirSync(DAILY_DIR)
+			.filter((file) => file.endsWith(".md"))
+			.sort()
+			.reverse();
+	} catch {
+		dailyFiles = [];
+	}
+	if (dailyFiles.length > 0) {
+		sections.push("", `## Daily logs\n\n${dailyFiles.map((file) => `- ${file}`).join("\n")}`);
+	}
+
+	return sections.join("\n");
+}
+
+export function clearMemoryContents(): { memoryFiles: number; recoveryFiles: number } {
+	ensureDirs();
+	let memoryFiles = 0;
+	let recoveryFiles = 0;
+	for (const filePath of [MEMORY_FILE, SCRATCHPAD_FILE]) {
+		if (!fs.existsSync(filePath)) continue;
+		fs.rmSync(filePath);
+		memoryFiles++;
+	}
+	for (const directory of [DAILY_DIR, RECOVERY_DIR]) {
+		for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+			if (!entry.isFile()) continue;
+			const expectedExtension = directory === DAILY_DIR ? ".md" : ".json";
+			if (!entry.name.endsWith(expectedExtension)) continue;
+			fs.rmSync(path.join(directory, entry.name));
+			if (directory === DAILY_DIR) memoryFiles++;
+			else recoveryFiles++;
+		}
+	}
+	snapshotDirty = true;
+	return { memoryFiles, recoveryFiles };
+}
+
 // ---------------------------------------------------------------------------
 // Memory snapshot (Option P: KV cache-stable context injection)
 //
@@ -1438,6 +1501,36 @@ export function _resetMemorySnapshot() {
 // ---------------------------------------------------------------------------
 
 export default function (omega: OmegaAPI) {
+	registerOmegaCommand(omega, "memory", {
+		description: "Show, inspect, or clear stored memory: /memory <show|status|clear>",
+		getArgumentCompletions: (prefix) =>
+			["show", "status", "clear"]
+				.filter((value) => value.startsWith(prefix.trim().toLowerCase()))
+				.map((value) => ({ value, label: value })),
+		handler: async (args, ctx) => {
+			const action = args.trim().toLowerCase();
+			if (action === "show") {
+				ctx.ui.notify(formatMemoryContents(), "info");
+				return;
+			}
+			if (action === "status") {
+				ctx.ui.notify(formatMemoryStatus(), "info");
+				return;
+			}
+			if (action === "clear") {
+				const cleared = clearMemoryContents();
+				await ensureQmdAvailableForUpdate();
+				scheduleQmdUpdate();
+				ctx.ui.notify(
+					`Memory cleared: ${cleared.memoryFiles} memory file(s), ${cleared.recoveryFiles} recovery record(s).`,
+					"info",
+				);
+				return;
+			}
+			ctx.ui.notify("Usage: /memory <show|status|clear>", "warning");
+		},
+	});
+
 	// --- session_start: detect qmd, auto-setup collection ---
 	omega.on("session_start", async (_event, ctx) => {
 		exitSummaryReason = null;

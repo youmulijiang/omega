@@ -7,7 +7,7 @@ describe("registerTools", () => {
 	it("registers executable HTTP and diff tools", async () => {
 		const tools: ToolDefinition[] = [];
 		registerTools({ registerTool: (tool: ToolDefinition) => tools.push(tool) } as unknown as OmegaAPI);
-		expect(tools.map((tool) => tool.name)).toEqual(["http_request", "http_replay", "diff"]);
+		expect(tools.map((tool) => tool.name)).toEqual(["knowledge_search", "http_request", "http_replay", "diff"]);
 		const context = {} as ExtensionContext;
 		const diff = tools.find((tool) => tool.name === "diff")!;
 		const result = await diff.execute("diff-1", { before: "old\n", after: "new\n" }, undefined, undefined, context);

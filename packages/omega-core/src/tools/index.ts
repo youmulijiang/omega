@@ -2,6 +2,7 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { OmegaAPI } from "../api.ts";
 import { diffText, formatTextDiff } from "./diff.ts";
 import { replayHttp, requestHttp } from "./http.ts";
+import { registerKnowledgeSearchTool } from "./knowledge-search.ts";
 
 export type { TextChange, TextDiff } from "./diff.ts";
 export { diffText, formatTextDiff } from "./diff.ts";
@@ -20,6 +21,7 @@ const httpProperties = {
 };
 
 export function registerTools(omega: OmegaAPI): void {
+	registerKnowledgeSearchTool(omega);
 	omega.registerTool({
 		name: "http_request",
 		label: "HTTP Request",
