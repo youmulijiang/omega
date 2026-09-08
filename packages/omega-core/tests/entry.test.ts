@@ -42,6 +42,7 @@ describe("omegaExtension", () => {
 				"http_request",
 				"http_replay",
 				"diff",
+				"knowledge_search",
 				"mcp",
 				"memory_write",
 				"scratchpad",
@@ -53,5 +54,7 @@ describe("omegaExtension", () => {
 			]),
 		);
 		expect(commands).toContain("btw");
+		expect(commands).toContain("study");
+		expect(commands).toContain("study:list");
 	});
 });

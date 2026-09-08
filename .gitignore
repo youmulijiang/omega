@@ -47,3 +47,4 @@ collect.sh
 .bun-cache/
 .agent/
 .omega/agent/models.json
+.omega/
