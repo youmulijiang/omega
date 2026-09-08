@@ -2,8 +2,10 @@ import type { OmegaAPI } from "../api.ts";
 import { setupHeader } from "./header.ts";
 import { PhaseIndicator } from "./phase-indicator.ts";
 import { setupStatus } from "./status.ts";
+import { setupToolbox } from "./toolbox.ts";
 
 export function registerUi(omega: OmegaAPI): void {
+	setupToolbox(omega);
 	setupHeader(omega);
 	setupStatus(omega);
 
@@ -14,7 +16,11 @@ export function registerUi(omega: OmegaAPI): void {
 	});
 }
 
+export { formatBashCallHighlighted, highlightBashCommand } from "./bash-highlight.ts";
 export { setupHeader } from "./header.ts";
 export type { OmegaPhase } from "./phase-indicator.ts";
 export { PhaseIndicator } from "./phase-indicator.ts";
 export { setupStatus } from "./status.ts";
+export { setupToolbox } from "./toolbox.ts";
+export { loadToolboxConfig, type ToolboxConfig } from "./toolbox-config.ts";
+export { patchToolBoxFrames, stripBackgroundFills } from "./toolbox-frame.ts";

@@ -166,6 +166,7 @@ export interface DefaultResourceLoaderOptions {
 	additionalPromptTemplatePaths?: string[];
 	additionalThemePaths?: string[];
 	extensionFactories?: InlineExtension[];
+	extensionFilter?: (extension: Extension) => boolean;
 	noExtensions?: boolean;
 	noSkills?: boolean;
 	noPromptTemplates?: boolean;
@@ -204,6 +205,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private additionalPromptTemplatePaths: string[];
 	private additionalThemePaths: string[];
 	private extensionFactories: InlineExtension[];
+	private extensionFilter?: (extension: Extension) => boolean;
 	private noExtensions: boolean;
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
@@ -266,6 +268,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
 		this.extensionFactories = options.extensionFactories ?? [];
+		this.extensionFilter = options.extensionFilter;
 		this.noExtensions = options.noExtensions ?? false;
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
@@ -558,12 +561,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 			: this.mergePaths(cliEnabledExtensions, enabledExtensions);
 		const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 		if (!options.includeInlineFactories) {
+			this.applyExtensionFilter(extensionsResult);
 			return extensionsResult;
 		}
 
 		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 		extensionsResult.extensions.push(...inlineExtensions.extensions);
 		extensionsResult.errors.push(...inlineExtensions.errors);
+		this.applyExtensionFilter(extensionsResult);
 		return extensionsResult;
 	}
 
@@ -580,6 +585,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 			extensionsResult.extensions.push(...inlineExtensions.extensions);
 			extensionsResult.errors.push(...inlineExtensions.errors);
+			this.applyExtensionFilter(extensionsResult);
 			this.addExtensionConflictDiagnostics(extensionsResult);
 			return extensionsResult;
 		}
@@ -620,8 +626,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 			errors: [...preTrustExtensions.errors, ...remainingExtensions.errors],
 			runtime: preTrustExtensions.runtime,
 		};
+		this.applyExtensionFilter(extensionsResult);
 		this.addExtensionConflictDiagnostics(extensionsResult);
 		return extensionsResult;
+	}
+
+	private applyExtensionFilter(extensionsResult: LoadExtensionsResult): void {
+		if (!this.extensionFilter) return;
+		extensionsResult.extensions = extensionsResult.extensions.filter(this.extensionFilter);
 	}
 
 	private addExtensionConflictDiagnostics(extensionsResult: LoadExtensionsResult): void {

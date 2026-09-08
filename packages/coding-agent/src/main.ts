@@ -42,7 +42,7 @@ import {
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
-import type { InlineExtension } from "./core/extensions/types.ts";
+import type { Extension, InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
@@ -555,6 +555,7 @@ async function promptForMissingSessionCwd(
 
 export interface MainOptions {
 	extensionFactories?: InlineExtension[];
+	extensionFilter?: (extension: Extension) => boolean;
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -769,6 +770,7 @@ export async function main(args: string[], options?: MainOptions) {
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
 				extensionFactories,
+				extensionFilter: options?.extensionFilter,
 			},
 		});
 		const { settingsManager, modelRuntime, resourceLoader } = services;

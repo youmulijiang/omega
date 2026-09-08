@@ -8,10 +8,15 @@ const { mainMock, omegaExtensionMock } = vi.hoisted(() => ({
 	omegaExtensionMock: vi.fn(),
 }));
 
+const { initializeKnowledgeDirectoryMock } = vi.hoisted(() => ({
+	initializeKnowledgeDirectoryMock: vi.fn(async () => "knowledge"),
+}));
+
 vi.mock("@earendil-works/pi-coding-agent", () => ({ main: mainMock }));
 vi.mock("../src/entry.ts", () => ({ default: omegaExtensionMock }));
+vi.mock("../src/knowledge/index.ts", () => ({ initializeKnowledgeDirectory: initializeKnowledgeDirectoryMock }));
 
-import { runOmegaCli } from "../src/cli-runner.ts";
+import { isOmegaCompatibleExtension, runOmegaCli } from "../src/cli-runner.ts";
 
 const originalTitle = process.title;
 const originalPiCodingAgent = process.env.PI_CODING_AGENT;
@@ -37,10 +42,27 @@ describe("runOmegaCli", () => {
 
 		expect(mainMock).toHaveBeenCalledWith(["--offline", "--help"], {
 			extensionFactories: [{ name: "omega-core", factory: omegaExtensionMock, hidden: true }],
+			extensionFilter: isOmegaCompatibleExtension,
 		});
 		expect(process.title).toBe("omega");
 		expect(process.env.PI_CODING_AGENT).toBe("true");
 		expect(process.env.AI_AGENT).toBe("pi");
+		expect(initializeKnowledgeDirectoryMock).toHaveBeenCalledOnce();
+	});
+
+	it("filters the external pi-toolbox copy on Windows and Unix paths", () => {
+		expect(
+			isOmegaCompatibleExtension({
+				path: "toolbox",
+				resolvedPath: "C:\\Users\\test\\.omega\\agent\\npm\\node_modules\\@andy8647\\pi-toolbox\\index.ts",
+			}),
+		).toBe(false);
+		expect(
+			isOmegaCompatibleExtension({
+				path: "other",
+				resolvedPath: "/home/test/.omega/agent/npm/node_modules/example-extension/index.ts",
+			}),
+		).toBe(true);
 	});
 
 	it("initializes the current project without starting the coding agent", async () => {
