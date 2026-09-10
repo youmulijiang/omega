@@ -40,6 +40,8 @@ systemPromptMode: replace
 
 设置保存在 Omega 用户目录的 `subagents.json` 中。修改开关后 Omega 会重新加载扩展；禁用时不会注册 `subagent` 工具、自动发现 Agent 或向 system prompt 注入 Agent 列表。显式执行状态或列表命令仍可读取 Agent 定义。
 
+在交互式 TUI 中，只要存在运行中的 subagent，底部状态栏就会显示运行数量和 Agent 名称；任务结束、失败或取消后状态会自动清除。`subagent` 工具输出本身继续支持折叠和展开，workflow 中启动的 subagent 也会同步到相同状态区域。
+
 列出 Agent：
 
 ```json
@@ -74,4 +76,6 @@ systemPromptMode: replace
 }
 ```
 
-内置场景为 `scout`、`reviewer`、`worker` 和 `oracle`。子 Agent 默认不加载父会话历史、项目上下文文件、Skills 或提示词模板；项目级 Agent 在未信任仓库中执行前需要交互确认。
+内置场景为 `security-worker`、`websec-tester`、`sec-advisor`、`log-analyst` 和 `osint-analyst`。子 Agent 默认不加载父会话历史、项目上下文文件、Skills 或提示词模板；项目级 Agent 在未信任仓库中执行前需要交互确认。
+
+需要用确定性 DSL 编排多个 Agent、宿主任务或“执行者—验证者”安全流程时，参见 [Omega Workflows](./workflows.md)。
