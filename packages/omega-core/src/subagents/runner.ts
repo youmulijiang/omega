@@ -11,7 +11,9 @@ import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_BYTES, truncateTail } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
 import type { AgentConfig } from "./agents.ts";
+import { SUBAGENT_STRUCTURED_OUTPUT_SCHEMA_ENV, WORKFLOW_STACK_ENV } from "./protocol.ts";
 import { getInheritedProjectTrustArgs, parseInheritedCliArgs, selectInheritedPiArgv } from "./runner-cli.js";
 import { processPiJsonLine } from "./runner-events.js";
 import {
@@ -35,10 +37,16 @@ const SUBAGENT_PREVENT_CYCLES_ENV = "OMEGA_SUBAGENT_PREVENT_CYCLES";
 const SUBAGENT_TEMP_PARENT_SESSION_ENV = "OMEGA_SUBAGENT_TEMP_PARENT_SESSION";
 const PI_OFFLINE_ENV = "PI_OFFLINE";
 const PERSISTENT_SESSION_EXIT_TIMEOUT_MS = 30_000;
+export const DEFAULT_SUBAGENT_RUN_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_JSON_LINE_BYTES = 25 * 1024 * 1024;
 const MAX_STDERR_BYTES = DEFAULT_MAX_BYTES;
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+/** Feed one Omega RPC JSONL record into a programmatic subagent result. */
+export function processSubagentJsonLine(line: string, result: SingleResult): boolean {
+	return processPiJsonLine(line, result);
+}
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -105,6 +113,19 @@ function writeSessionSnapshotToTempFile(agentName: string, sessionJsonl: string)
 	const filePath = path.join(tmpDir, `parent-${safeName}.jsonl`);
 	try {
 		fs.writeFileSync(filePath, sessionJsonl, { encoding: "utf-8", mode: 0o600 });
+		return { dir: tmpDir, filePath };
+	} catch (error) {
+		cleanupTempDir(tmpDir);
+		throw error;
+	}
+}
+
+function writeStructuredOutputSchemaToTempFile(agentName: string, schema: TSchema): { dir: string; filePath: string } {
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omega-subagent-"));
+	const safeName = agentName.replace(/[^\w.-]+/g, "_");
+	const filePath = path.join(tmpDir, `schema-${safeName}.json`);
+	try {
+		fs.writeFileSync(filePath, JSON.stringify(schema), { encoding: "utf-8", mode: 0o600 });
 		return { dir: tmpDir, filePath };
 	} catch (error) {
 		cleanupTempDir(tmpDir);
@@ -189,6 +210,7 @@ export function buildPiArgs(
 	callModel?: string,
 	parentModel?: ParentModel,
 	inheritProjectApproval = true,
+	requiredTools: string[] = [],
 ): string[] {
 	const projectTrustArgs = getInheritedProjectTrustArgs(inheritedCliArgs.projectTrustOverride, inheritProjectApproval);
 	const args: string[] = [...inheritedCliArgs.extensionArgs, ...inheritedCliArgs.alwaysProxy, ...projectTrustArgs];
@@ -223,14 +245,20 @@ export function buildPiArgs(
 	if (thinking) args.push("--thinking", thinking);
 
 	if (agent.noTools === true) {
-		args.push("--no-tools");
+		if (requiredTools.length > 0) args.push("--tools", [...new Set(requiredTools)].join(","));
+		else args.push("--no-tools");
 	} else if (agent.tools && agent.tools.length > 0) {
-		args.push("--tools", agent.tools.join(","));
+		args.push("--tools", [...new Set([...agent.tools, ...requiredTools])].join(","));
 	} else if (agent.tools === undefined) {
 		if (inheritedCliArgs.fallbackTools !== undefined) {
-			args.push("--tools", inheritedCliArgs.fallbackTools);
+			const fallbackTools = inheritedCliArgs.fallbackTools
+				.split(",")
+				.map((tool: string) => tool.trim())
+				.filter(Boolean);
+			args.push("--tools", [...new Set([...fallbackTools, ...requiredTools])].join(","));
 		} else if (inheritedCliArgs.fallbackNoTools) {
-			args.push("--no-tools");
+			if (requiredTools.length > 0) args.push("--tools", [...new Set(requiredTools)].join(","));
+			else args.push("--no-tools");
 		}
 	}
 
@@ -281,6 +309,10 @@ export interface RunAgentOptions {
 	inactivityTimeoutMs?: number;
 	/** Optional exceptional wall-clock deadline for the child run. */
 	timeoutMs?: number;
+	/** Optional JSON Schema exposed to the child as a terminating structured_output tool. */
+	structuredOutputSchema?: TSchema;
+	/** Workflow ancestry propagated to a child that may invoke the workflow tool. */
+	workflowStack?: string[];
 	/** Abort signal for cancellation. */
 	signal?: AbortSignal;
 	/** Streaming update callback. */
@@ -305,6 +337,10 @@ export function resolveInactivityTimeoutMs(
 	return callInactivityTimeoutMs ?? (agentTimeoutSeconds === undefined ? undefined : agentTimeoutSeconds * 1000);
 }
 
+export function resolveRunTimeoutMs(callTimeoutMs: number | undefined): number {
+	return callTimeoutMs ?? DEFAULT_SUBAGENT_RUN_TIMEOUT_MS;
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	const {
 		cwd,
@@ -325,6 +361,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 		preventCycles,
 		inactivityTimeoutMs: callInactivityTimeoutMs,
 		timeoutMs,
+		structuredOutputSchema,
+		workflowStack,
 		signal,
 		onUpdate,
 		makeDetails,
@@ -370,6 +408,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	}
 
 	const inactivityTimeoutMs = resolveInactivityTimeoutMs(callInactivityTimeoutMs, agent.inactivityTimeout);
+	const runTimeoutMs = resolveRunTimeoutMs(timeoutMs);
 
 	const result: SingleResult = {
 		callIndex,
@@ -407,6 +446,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	let promptTmpPath: string | null = null;
 	let parentSessionTmpDir: string | null = null;
 	let parentSessionTmpPath: string | null = null;
+	let structuredOutputSchemaTmpDir: string | null = null;
+	let structuredOutputSchemaTmpPath: string | null = null;
 
 	try {
 		if (agent.systemPrompt.trim()) {
@@ -425,6 +466,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			parentSessionTmpPath = tmp.filePath;
 		}
 
+		if (structuredOutputSchema) {
+			const tmp = writeStructuredOutputSchemaToTempFile(agent.name, structuredOutputSchema);
+			structuredOutputSchemaTmpDir = tmp.dir;
+			structuredOutputSchemaTmpPath = tmp.filePath;
+		}
+
 		const piArgs = buildPiArgs(
 			agent,
 			promptTmpPath,
@@ -436,6 +483,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			callModel,
 			parentModel,
 			isSameWorkingDirectory(callCwd ?? cwd, cwd),
+			structuredOutputSchema ? ["structured_output"] : [],
 		);
 
 		const exitCode = await new Promise<number>((resolve) => {
@@ -450,6 +498,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
+					[SUBAGENT_STRUCTURED_OUTPUT_SCHEMA_ENV]: structuredOutputSchemaTmpPath ?? "",
+					[WORKFLOW_STACK_ENV]: workflowStack
+						? JSON.stringify(workflowStack)
+						: (process.env[WORKFLOW_STACK_ENV] ?? ""),
 					[SUBAGENT_DEPTH_ENV]: String(nextDepth),
 					[SUBAGENT_MAX_DEPTH_ENV]: String(propagatedMaxDepth),
 					[SUBAGENT_STACK_ENV]: JSON.stringify(propagatedStack),
@@ -632,14 +684,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 
 			resetInactivityTimeout();
 
-			if (timeoutMs !== undefined) {
-				runTimeoutTimer = setTimeout(() => {
-					if (didClose || settled) return;
-					const timeoutSeconds = timeoutMs / 1000;
-					failAndTerminate(`Subagent exceeded its configured ${timeoutSeconds}s run timeout.`);
-				}, timeoutMs);
-				runTimeoutTimer.unref();
-			}
+			runTimeoutTimer = setTimeout(() => {
+				if (didClose || settled) return;
+				const timeoutSeconds = runTimeoutMs / 1000;
+				failAndTerminate(`Subagent exceeded its ${timeoutSeconds}s run timeout and was removed from the queue.`);
+			}, runTimeoutMs);
+			runTimeoutTimer.unref();
 
 			const finish = (code: number) => {
 				if (settled) return;
@@ -807,6 +857,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	} finally {
 		cleanupTempDir(promptTmpDir);
 		cleanupTempDir(parentSessionTmpDir);
+		cleanupTempDir(structuredOutputSchemaTmpDir);
 	}
 }
 

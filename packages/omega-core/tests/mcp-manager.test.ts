@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { formatMcpFooterStatus } from "../src/mcp/index.ts";
 import { updateProjectServer } from "../src/mcp/native-config.ts";
 import { OmegaMcpManager } from "../src/mcp/native-manager.ts";
 import { OmegaMcpToolCache } from "../src/mcp/tool-cache.ts";
@@ -23,6 +24,18 @@ async function waitFor(check: () => boolean, timeout = 2_000): Promise<void> {
 }
 
 describe("OmegaMcpManager", () => {
+	it("counts only tools from currently connected MCP servers in the footer", () => {
+		const config = { type: "stdio" as const, command: "fixture" };
+		const tool = { name: "echo", inputSchema: { type: "object" as const } };
+		expect(
+			formatMcpFooterStatus([
+				{ name: "live", config, status: "connected", tools: [tool] },
+				{ name: "cached", config, status: "error", tools: [tool, tool], toolSource: "cache" },
+				{ name: "disabled", config, status: "disabled", tools: [tool], toolSource: "cache" },
+			]),
+		).toBe("MCP 1/3 servers · 1 tool");
+	});
+
 	it("connects to a stdio MCP server and calls a discovered tool", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "omega-mcp-manager-"));
 		temporaryDirectories.push(cwd);

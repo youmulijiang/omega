@@ -37,6 +37,7 @@ const INITIAL_FILES = {
 
 export interface InitWorkspaceResult {
 	root: string;
+	directories: string[];
 	created: string[];
 	existing: string[];
 }
@@ -45,7 +46,9 @@ export interface InitWorkspaceResult {
 export async function initializeOmegaWorkspace(cwd: string): Promise<InitWorkspaceResult> {
 	const root = join(cwd, ".omega");
 	const agentDirectory = join(root, "agent");
+	const workflowDirectory = join(root, "workflows");
 	await mkdir(agentDirectory, { recursive: true });
+	await mkdir(workflowDirectory, { recursive: true });
 
 	const created: string[] = [];
 	const existing: string[] = [];
@@ -63,11 +66,19 @@ export async function initializeOmegaWorkspace(cwd: string): Promise<InitWorkspa
 		}
 	}
 
-	return { root, created, existing };
+	return {
+		root,
+		directories: [relative(cwd, agentDirectory), relative(cwd, workflowDirectory)],
+		created,
+		existing,
+	};
 }
 
 export function formatInitResult(result: InitWorkspaceResult): string {
-	const lines = [`Omega 工作目录已初始化：${result.root}`];
+	const lines = [
+		`Omega 工作目录已初始化：${result.root}`,
+		`目录：\n${result.directories.map((path) => `- ${path}`).join("\n")}`,
+	];
 	if (result.created.length > 0) lines.push(`已创建：\n${result.created.map((path) => `- ${path}`).join("\n")}`);
 	if (result.existing.length > 0) {
 		lines.push(`已存在，未覆盖：\n${result.existing.map((path) => `- ${path}`).join("\n")}`);
@@ -78,7 +89,7 @@ export function formatInitResult(result: InitWorkspaceResult): string {
 /** Register the interactive `/init` command. */
 export function registerInit(omega: OmegaAPI): void {
 	registerOmegaCommand(omega, "init", {
-		description: "初始化当前工作目录的 .omega/agent 配置",
+		description: "初始化当前工作目录的 .omega 配置和 workflows 目录",
 		handler: async (_args, ctx) => {
 			try {
 				ctx.ui.notify(formatInitResult(await initializeOmegaWorkspace(ctx.cwd)), "info");

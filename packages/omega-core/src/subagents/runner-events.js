@@ -57,6 +57,13 @@ function rememberSignature(seen, signature) {
 function updateAssistantMetadata(result, message) {
   if (!message || message.role !== "assistant") return;
   if (!result.model && message.model) result.model = message.model;
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part?.type === "toolCall" && part.name === "structured_output" && part.arguments !== undefined) {
+        result.structuredOutput = part.arguments;
+      }
+    }
+  }
   if (result.processError) return;
   if (message.stopReason) result.stopReason = message.stopReason;
   if (message.errorMessage) result.errorMessage = message.errorMessage;
@@ -285,7 +292,9 @@ export function getProcessErrorText(result) {
 
 export function getResultSummaryText(result) {
   const finalText = getFinalAssistantText(result?.messages);
-  if (!finalText && result?.handledWithoutAgent) {
+  const structuredText =
+    result?.structuredOutput === undefined ? "" : JSON.stringify(result.structuredOutput, null, 2);
+  if (!finalText && !structuredText && result?.handledWithoutAgent) {
     return "Subagent prompt was handled without an agent response.";
   }
   const processErrorText = getProcessErrorText(result);
@@ -302,6 +311,8 @@ export function getResultSummaryText(result) {
     ? "[Earlier or oversized subagent messages were omitted at the capture limit.]"
     : "";
   const suffix = [errorText, captureText].filter(Boolean).join("\n\n");
+  if (structuredText && suffix) return `${structuredText}\n\n${suffix}`;
+  if (structuredText) return structuredText;
   if (finalText && suffix) return `${finalText}\n\n${suffix}`;
   if (finalText) return finalText;
   if (suffix) return suffix;

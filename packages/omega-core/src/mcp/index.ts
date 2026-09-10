@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
@@ -55,6 +55,17 @@ function statusText(states: McpServerState[]): string {
 			return `- ${state.name}: ${state.status}${detail ? ` (${detail})` : ""}`;
 		})
 		.join("\n");
+}
+
+export function formatMcpFooterStatus(states: readonly McpServerState[]): string {
+	const connected = states.filter((state) => state.status === "connected");
+	const availableTools = connected.reduce((total, state) => total + state.tools.length, 0);
+	if (states.length === 0) return "MCP 0 servers";
+	return `MCP ${connected.length}/${states.length} servers · ${availableTools} ${availableTools === 1 ? "tool" : "tools"}`;
+}
+
+function updateMcpFooter(ctx: Pick<ExtensionContext, "hasUI" | "ui">, manager: OmegaMcpManager): void {
+	if (ctx.hasUI) ctx.ui.setStatus("omega-mcp", formatMcpFooterStatus(manager.getStates()));
 }
 
 function contentToText(content: ContentBlock): string {
@@ -294,10 +305,11 @@ export function registerMcp(omega: OmegaAPI): void {
 	};
 
 	omega.on("session_start", async (_event, ctx) => {
-		await getManager(ctx.cwd);
-		if (ctx.hasUI) ctx.ui.setStatus("omega-mcp", `MCP ${manager?.listTools().length ?? 0} tools`);
+		const active = await getManager(ctx.cwd);
+		updateMcpFooter(ctx, active);
 	});
-	omega.on("session_shutdown", async () => {
+	omega.on("session_shutdown", async (_event, ctx) => {
+		if (ctx.hasUI) ctx.ui.setStatus("omega-mcp", undefined);
 		await manager?.close();
 		manager = undefined;
 		cwd = undefined;
@@ -310,8 +322,9 @@ export function registerMcp(omega: OmegaAPI): void {
 				.filter((value) => value.startsWith(prefix.trim()))
 				.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
+			let active: OmegaMcpManager | undefined;
 			try {
-				const active = await getManager(ctx.cwd);
+				active = await getManager(ctx.cwd);
 				const command = args.trim();
 				if (!command) await showMcpPanel(ctx, active);
 				else if (command === "status") ctx.ui.notify(statusText(active.getStates()), "info");
@@ -341,6 +354,8 @@ export function registerMcp(omega: OmegaAPI): void {
 				} else ctx.ui.notify("Usage: /mcp [status|reload|tools|smithery|auth]", "warning");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			} finally {
+				if (active) updateMcpFooter(ctx, active);
 			}
 		},
 	});
@@ -350,6 +365,7 @@ export function registerMcp(omega: OmegaAPI): void {
 		handler: async (_args, ctx) => {
 			try {
 				const active = await getManager(ctx.cwd);
+				updateMcpFooter(ctx, active);
 				ctx.ui.notify(formatMcpServerList(active.getStates()), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
@@ -362,6 +378,7 @@ export function registerMcp(omega: OmegaAPI): void {
 		handler: async (_args, ctx) => {
 			try {
 				const active = await getManager(ctx.cwd);
+				updateMcpFooter(ctx, active);
 				ctx.ui.notify(statusText(active.getStates()), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
@@ -383,6 +400,7 @@ export function registerMcp(omega: OmegaAPI): void {
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const active = await getManager(ctx.cwd);
+			updateMcpFooter(ctx, active);
 			const action: McpAction = params.action;
 			if (action === "status") {
 				return {
@@ -409,6 +427,7 @@ export function registerMcp(omega: OmegaAPI): void {
 			if (!params.server) throw new Error(`MCP action "${action}" requires server`);
 			if (action === "reconnect") {
 				const state = await active.reconnect(params.server);
+				updateMcpFooter(ctx, active);
 				return {
 					content: [{ type: "text", text: `${state.name}: ${state.status} (${state.tools.length} tools)` }],
 					details: { state },
@@ -420,6 +439,7 @@ export function registerMcp(omega: OmegaAPI): void {
 						`MCP server "${params.server}" requires OAuth authorization. Ask the user to run /mcp auth ${params.server} and open:\n${url.toString()}`,
 					);
 				});
+				updateMcpFooter(ctx, active);
 				return {
 					content: [{ type: "text", text: `${state.name}: ${state.status} (${state.tools.length} tools)` }],
 					details: { state },
@@ -427,6 +447,7 @@ export function registerMcp(omega: OmegaAPI): void {
 			}
 			if (action === "logout") {
 				await active.logout(params.server);
+				updateMcpFooter(ctx, active);
 				return {
 					content: [{ type: "text", text: `Cleared OAuth credentials for ${params.server}` }],
 					details: { server: params.server },

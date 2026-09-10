@@ -39,12 +39,11 @@ export type SideThreadTurn =
 	  };
 
 export interface SideThread {
-	conversationContext: string;
 	turns: SideThreadTurn[];
 }
 
-export function createSideThread(conversationContext: string): SideThread {
-	return { conversationContext, turns: [] };
+export function createSideThread(): SideThread {
+	return { turns: [] };
 }
 
 export function buildSideThreadMessages(thread: SideThread, question: string): Message[] {
@@ -54,12 +53,12 @@ export function buildSideThreadMessages(thread: SideThread, question: string): M
 	const messages: Message[] = [];
 
 	if (answeredTurns.length === 0) {
-		messages.push(createUserMessage(buildUserPrompt(question, thread.conversationContext)));
+		messages.push(createUserMessage(buildUserPrompt(question)));
 		return messages;
 	}
 
 	const [first, ...rest] = answeredTurns;
-	messages.push(createUserMessage(buildUserPrompt(first.question, thread.conversationContext)), first.response);
+	messages.push(createUserMessage(buildUserPrompt(first.question)), first.response);
 	for (const turn of rest) {
 		messages.push(createUserMessage(buildFollowUpPrompt(turn.question)), turn.response);
 	}
@@ -121,7 +120,6 @@ export async function completeSideThreadTurn({
 export interface CompleteSideQuestionOptions {
 	model: Model<Api>;
 	question: string;
-	conversationContext: string;
 	thinkingLevel: BtwThinkingLevel;
 	auth: SideQuestionAuth;
 	signal?: AbortSignal;
@@ -131,7 +129,6 @@ export interface CompleteSideQuestionOptions {
 export async function completeSideQuestion({
 	model,
 	question,
-	conversationContext,
 	thinkingLevel,
 	auth,
 	signal,
@@ -141,7 +138,7 @@ export async function completeSideQuestion({
 		model,
 		{
 			systemPrompt: SYSTEM_PROMPT,
-			messages: [createUserMessage(buildUserPrompt(question, conversationContext))],
+			messages: [createUserMessage(buildUserPrompt(question))],
 		},
 		buildStreamOptions(auth, thinkingLevel, signal),
 	);
@@ -169,17 +166,13 @@ function isAssistantMessage(value: unknown): value is AssistantMessage {
 	);
 }
 
-export function buildUserPrompt(question: string, conversationContext: string): string {
+export function buildUserPrompt(question: string): string {
 	return [
-		"Answer this side question without modifying the main conversation.",
+		"Answer this isolated side question without modifying or referring to the main conversation.",
 		"",
 		"<side_question>",
 		question,
 		"</side_question>",
-		"",
-		"<conversation_context>",
-		conversationContext || "No prior conversation context was available.",
-		"</conversation_context>",
 	].join("\n");
 }
 
@@ -216,4 +209,4 @@ function formatError(error: unknown): string {
 
 const SYSTEM_PROMPT = `You answer quick side questions for a coding-agent user.
 
-Use the provided conversation context only as background. Answer the user's side question directly and concisely. Do not claim to have changed files, run tools, or affected the main task. If the context is insufficient, say what is unknown and give the best next step.`;
+Answer the user's isolated side question directly and concisely. Do not claim to have changed files, run tools, or affected the main task. Do not rely on or request the main conversation context.`;

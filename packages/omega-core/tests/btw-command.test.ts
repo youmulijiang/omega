@@ -4,10 +4,11 @@ import type {
 	ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { publishBringToMainResult, registerBtw } from "../src/btw/index.ts";
+import { registerBtw } from "../src/btw/btw.ts";
 
 vi.mock("../src/btw/transcript-pager.ts", () => ({
 	BtwAnsweringView: class {},
+	BtwLogView: class {},
 	BtwTranscriptPager: class {},
 }));
 
@@ -53,26 +54,24 @@ describe("registerBtw", () => {
 		);
 	});
 
-	it("publishes brought-back context as a labelled transcript message without changing the editor", async () => {
-		const setEditorText = vi.fn();
-		const notify = vi.fn();
-		const sendMessage = vi.fn();
-		const ctx = { ui: { notify, setEditorText } } as unknown as ExtensionCommandContext;
-		const omega = { sendMessage } as unknown as Pick<ExtensionAPI, "sendMessage">;
-		const summary = { lines: 2, messages: 2, tokens: 12 };
-
-		const result = await publishBringToMainResult("<btw_context>result</btw_context>", ctx, summary, omega);
-
-		expect(result).toBe("loaded");
-		expect(setEditorText).not.toHaveBeenCalled();
-		expect(sendMessage).toHaveBeenCalledWith(
-			{
-				customType: "btw-result",
-				content: "<btw_context>result</btw_context>",
-				display: true,
-				details: summary,
+	it("registers /btw:log without publishing anything to the main session", async () => {
+		let logHandler: CommandHandler | undefined;
+		const pi = {
+			getThinkingLevel: () => "off",
+			registerCommand: (name: string, command: { handler: CommandHandler }) => {
+				if (name === "btw:log") logHandler = command.handler;
 			},
-			{ triggerTurn: false },
-		);
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			mode: "tui",
+			sessionManager: { getBranch: () => [] },
+			ui: { notify: vi.fn() },
+		} as unknown as ExtensionCommandContext;
+
+		registerBtw(pi, {
+		});
+
+		await logHandler?.("", ctx);
+		expect(ctx.ui.notify).toHaveBeenCalledWith("No BTW conversation history is available.", "info");
 	});
 });

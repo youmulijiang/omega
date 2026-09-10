@@ -1,1 +1,1 @@
-export { publishBringToMainResult, registerBtw } from "./btw.ts";
+export { registerBtw } from "./btw.ts";

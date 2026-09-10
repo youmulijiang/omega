@@ -1,7 +1,7 @@
 ---
 name: osint-analyst
 description: OSINT 分析工程师。收集并交叉验证目标公开信息，构建资产与人员情报画像，不修改文件
-tools: read, grep, find, ls, bash
+tools: read, grep, find, ls, bash, workflow
 thinking: medium
 sessionPreference: persistent
 sessionHint: 同一目标的情报收集使用按目标命名的持久会话（如 session="osint-acme-target"）；单点查询使用临时调用。

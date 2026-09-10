@@ -2,18 +2,21 @@ import { type Extension, main } from "@earendil-works/pi-coding-agent";
 import omegaExtension from "./entry.ts";
 import { formatInitResult, initializeOmegaWorkspace } from "./init/index.ts";
 import { initializeKnowledgeDirectory } from "./knowledge/index.ts";
+import { initializeUserWorkflowsDirectory } from "./workflows/registry.ts";
 
 const EXTERNAL_TOOLBOX_PATH = /(?:^|\/)node_modules\/@andy8647\/pi-toolbox(?:\/|$)/i;
+const EXTERNAL_DYNAMIC_WORKFLOWS_PATH = /(?:^|\/)node_modules\/@quintinshaw\/pi-dynamic-workflows(?:\/|$)/i;
 
-/** The pi-toolbox functionality is built into Omega and must not be loaded twice. */
+/** These external extension capabilities are built into Omega and must not be loaded twice. */
 export function isOmegaCompatibleExtension(extension: Pick<Extension, "path" | "resolvedPath">): boolean {
 	const path = (extension.resolvedPath || extension.path).replaceAll("\\", "/");
-	return !EXTERNAL_TOOLBOX_PATH.test(path);
+	return !EXTERNAL_TOOLBOX_PATH.test(path) && !EXTERNAL_DYNAMIC_WORKFLOWS_PATH.test(path);
 }
 
 /** Run the coding agent with OMEGA's core functionality statically registered. */
 export async function runOmegaCli(args: string[]): Promise<void> {
 	process.title = "omega";
+	initializeUserWorkflowsDirectory();
 	await initializeKnowledgeDirectory();
 	if (args[0] === "init") {
 		if (args.length > 1) throw new Error("Usage: omega init");

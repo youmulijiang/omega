@@ -12,9 +12,16 @@ const { initializeKnowledgeDirectoryMock } = vi.hoisted(() => ({
 	initializeKnowledgeDirectoryMock: vi.fn(async () => "knowledge"),
 }));
 
+const { initializeUserWorkflowsDirectoryMock } = vi.hoisted(() => ({
+	initializeUserWorkflowsDirectoryMock: vi.fn(() => "workflows"),
+}));
+
 vi.mock("@earendil-works/pi-coding-agent", () => ({ main: mainMock }));
 vi.mock("../src/entry.ts", () => ({ default: omegaExtensionMock }));
 vi.mock("../src/knowledge/index.ts", () => ({ initializeKnowledgeDirectory: initializeKnowledgeDirectoryMock }));
+vi.mock("../src/workflows/registry.ts", () => ({
+	initializeUserWorkflowsDirectory: initializeUserWorkflowsDirectoryMock,
+}));
 
 import { isOmegaCompatibleExtension, runOmegaCli } from "../src/cli-runner.ts";
 
@@ -48,13 +55,28 @@ describe("runOmegaCli", () => {
 		expect(process.env.PI_CODING_AGENT).toBe("true");
 		expect(process.env.AI_AGENT).toBe("pi");
 		expect(initializeKnowledgeDirectoryMock).toHaveBeenCalledOnce();
+		expect(initializeUserWorkflowsDirectoryMock).toHaveBeenCalledOnce();
 	});
 
-	it("filters the external pi-toolbox copy on Windows and Unix paths", () => {
+	it("filters external extensions whose capabilities are built into Omega", () => {
 		expect(
 			isOmegaCompatibleExtension({
 				path: "toolbox",
 				resolvedPath: "C:\\Users\\test\\.omega\\agent\\npm\\node_modules\\@andy8647\\pi-toolbox\\index.ts",
+			}),
+		).toBe(false);
+		expect(
+			isOmegaCompatibleExtension({
+				path: "dynamic-workflows",
+				resolvedPath:
+					"C:\\Users\\test\\.omega\\agent\\npm\\node_modules\\@quintinshaw\\pi-dynamic-workflows\\dist\\pi-extension.js",
+			}),
+		).toBe(false);
+		expect(
+			isOmegaCompatibleExtension({
+				path: "dynamic-workflows",
+				resolvedPath:
+					"/home/test/.omega/agent/npm/node_modules/@quintinshaw/pi-dynamic-workflows/dist/pi-extension.js",
 			}),
 		).toBe(false);
 		expect(

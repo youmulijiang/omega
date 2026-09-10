@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -25,6 +25,7 @@ describe("Omega init command", () => {
 
 		const result = await initializeOmegaWorkspace(workspace);
 
+		expect(result.directories).toEqual([join(".omega", "agent"), join(".omega", "workflows")]);
 		expect(result.created).toEqual([
 			join(".omega", "agent", "AGENTS.md"),
 			join(".omega", "agent", "settings.json"),
@@ -34,6 +35,7 @@ describe("Omega init command", () => {
 		expect(readFileSync(join(workspace, ".omega", "agent", "AGENTS.md"), "utf8")).toContain(
 			"Omega Agent Instructions",
 		);
+		expect(existsSync(join(workspace, ".omega", "workflows"))).toBe(true);
 		expect(JSON.parse(readFileSync(join(workspace, ".omega", "agent", "settings.json"), "utf8"))).toEqual({
 			collapseChangelog: true,
 		});
@@ -76,6 +78,7 @@ describe("Omega init command", () => {
 		await commands.get("init")?.("", { cwd: workspace, ui: { notify } } as Parameters<CommandHandler>[1]);
 
 		expect(readFileSync(join(workspace, ".omega", "agent", "scope.md"), "utf8")).toContain("# scope.md");
+		expect(existsSync(join(workspace, ".omega", "workflows"))).toBe(true);
 		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Omega 工作目录已初始化"), "info");
 	});
 });

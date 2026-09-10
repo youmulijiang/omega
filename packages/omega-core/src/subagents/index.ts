@@ -13,6 +13,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import {
 	type ExtensionCommandContext,
+	type ExtensionContext,
 	getAgentDir,
 	ProjectTrustStore,
 	SessionManager,
@@ -37,6 +38,12 @@ import { formatCallsSummary, writeOutputArtifact } from "./output.ts";
 import { renderCall, renderResult } from "./render.ts";
 import { mapConcurrent, type ParentModel, runAgent } from "./runner.ts";
 import { parseInheritedCliArgs, selectInheritedPiArgv } from "./runner-cli.js";
+import {
+	SubagentAgentsWidget,
+	SubagentConversationView,
+	SubagentFleetEditor,
+	SubagentFleetWidget,
+} from "./runtime-view.ts";
 import { acquireSessionLocks, releaseSessionLocks, type SessionLockTarget } from "./session-lock.ts";
 import { ensureDefaultSessionDir, getDefaultSessionDirPath } from "./session-paths.ts";
 import { getSubagentSettingsPath, readSubagentSettings, writeSubagentSettings } from "./settings.ts";
@@ -57,6 +64,7 @@ import {
 const MAX_CALLS = 8;
 const MAX_CONCURRENCY = 4;
 const CALLS_HEARTBEAT_MS = 1000;
+const SUBAGENT_STATUS_KEY = "omega.subagents";
 const DEFAULT_MAX_DELEGATION_DEPTH = 3;
 const DEFAULT_PREVENT_CYCLE_DELEGATION = true;
 export const OMEGA_SUBAGENT_DEPTH_ENV = "OMEGA_SUBAGENT_DEPTH";
@@ -641,6 +649,19 @@ function makePlaceholderResult(call: NormalizedCall): SingleResult {
 	};
 }
 
+function updateSubagentFooter(ctx: Pick<ExtensionContext, "ui">, results: readonly SingleResult[] | undefined): void {
+	const running = results?.filter((result) => result.exitCode === -1) ?? [];
+	if (running.length === 0) {
+		ctx.ui.setStatus(SUBAGENT_STATUS_KEY, undefined);
+		return;
+	}
+	const names = running.map((result) => result.agent).join(", ");
+	ctx.ui.setStatus(
+		SUBAGENT_STATUS_KEY,
+		ctx.ui.theme.fg("warning", ` subagents ${running.length} running · ${names} `),
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -670,6 +691,37 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	const runtimeEnabled = enabled && canDelegate;
 	const activeSessionIds = new Set<string>();
 	const outputArtifactDirs = new Set<string>();
+	let latestRuntimeResults: readonly SingleResult[] = [];
+
+	omega.registerShortcut("shift+down", {
+		description: "选择并查看 subagent 实时会话",
+		handler: async (ctx) => {
+			if (latestRuntimeResults.length === 0) {
+				ctx.ui.notify("当前没有可查看的 subagent 运行记录。", "info");
+				return;
+			}
+			await ctx.ui.custom<void>(
+				(tui, theme, keybindings, done) =>
+					new SubagentConversationView(
+						() => latestRuntimeResults,
+						tui,
+						theme,
+						keybindings,
+						() => done(),
+					),
+				{
+					overlay: true,
+					overlayOptions: {
+						anchor: "center",
+						width: "94%",
+						minWidth: 72,
+						maxHeight: "82%",
+						margin: 1,
+					},
+				},
+			);
+		},
+	});
 
 	const saveFullOutput = (content: string): string | null => {
 		try {
@@ -682,7 +734,8 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 		}
 	};
 
-	omega.on("session_shutdown", () => {
+	omega.on("session_shutdown", (_event, ctx) => {
+		updateSubagentFooter(ctx, undefined);
 		for (const dir of outputArtifactDirs) {
 			try {
 				fs.rmSync(dir, { recursive: true, force: true });
@@ -773,9 +826,6 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 					);
 				} else if (starterDiscovery.error && discoveredAgents.length === 0) {
 					ctx.ui.notify(`No subagents found. ${starterDiscovery.error}`, "info");
-				} else if (discoveredAgents.length > 0) {
-					const list = discoveredAgents.map((a) => `  - ${a.name} (${a.source})`).join("\n");
-					ctx.ui.notify(`Found ${discoveredAgents.length} subagent(s):\n${list}`, "info");
 				}
 			}
 		});
@@ -814,6 +864,11 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 			parameters: SubagentParams,
 
 			async execute(_toolCallId, params, signal, onUpdate, ctx) {
+				let agentsWidget: SubagentAgentsWidget | undefined;
+				let fleetWidget: SubagentFleetWidget | undefined;
+				let installedFleetEditor = false;
+				let runtimeViewerOpen = false;
+				let executionFinished = false;
 				const parentModel: ParentModel | undefined = ctx.model
 					? { provider: ctx.model.provider, id: ctx.model.id }
 					: undefined;
@@ -927,17 +982,112 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 						parentSessionSnapshotJsonl = snapshot;
 					}
 
-					return await executeCalls(
-						calls,
-						parentSessionSnapshotJsonl,
-						persistentSessionDir,
-						parentModel,
-						agents,
-						ctx.cwd,
-						signal,
-						onUpdate,
-						makeDetails,
+					ctx.ui.setWidget(
+						"omega.subagents.agents",
+						(tui, theme) => {
+							agentsWidget = new SubagentAgentsWidget(tui, theme);
+							return agentsWidget;
+						},
+						{ placement: "aboveEditor" },
 					);
+					const activateFleetWidget = () => {
+						if (fleetWidget) return fleetWidget;
+						ctx.ui.setWidget(
+							"omega.subagents.fleet",
+							(tui, theme) => {
+								fleetWidget = new SubagentFleetWidget(tui, theme);
+								return fleetWidget;
+							},
+							{ placement: "belowEditor" },
+						);
+						return fleetWidget;
+					};
+					const deactivateFleetWidget = () => {
+						ctx.ui.setWidget("omega.subagents.fleet", undefined);
+						fleetWidget = undefined;
+					};
+					const restoreFleetEditor = () => {
+						if (!installedFleetEditor) return;
+						installedFleetEditor = false;
+						ctx.ui.setEditorComponent(undefined);
+					};
+					const openRuntimeViewer = (initialSelection: number) => {
+						if (runtimeViewerOpen) return;
+						runtimeViewerOpen = true;
+						void ctx.ui
+							.custom<void>(
+								(tui, theme, keybindings, done) =>
+									new SubagentConversationView(
+										() => latestRuntimeResults,
+										tui,
+										theme,
+										keybindings,
+										() => done(),
+										initialSelection,
+										(index) => {
+											agentsWidget?.setSelection(index);
+											fleetWidget?.setSelection(index);
+										},
+									),
+								{
+									overlay: true,
+									overlayOptions: {
+										anchor: "center",
+										width: "94%",
+										minWidth: 72,
+										maxHeight: "82%",
+										margin: 1,
+									},
+								},
+							)
+							.catch((error) => ctx.ui.notify(`打开 subagent 运行视图失败：${String(error)}`, "error"))
+							.finally(() => {
+								runtimeViewerOpen = false;
+								if (executionFinished) restoreFleetEditor();
+							});
+					};
+					if (!ctx.ui.getEditorComponent()) {
+						ctx.ui.setEditorComponent(
+							(tui, theme, keybindings) =>
+								new SubagentFleetEditor(
+									tui,
+									theme,
+									keybindings,
+									() => latestRuntimeResults,
+									() => fleetWidget,
+									activateFleetWidget,
+									deactivateFleetWidget,
+									openRuntimeViewer,
+								),
+						);
+						installedFleetEditor = true;
+					}
+					const updateRuntime = (partial: AgentToolResult<SubagentDetails>) => {
+						latestRuntimeResults = partial.details.results;
+						agentsWidget?.setResults(partial.details.results);
+						fleetWidget?.setResults(partial.details.results);
+						updateSubagentFooter(ctx, partial.details.results);
+						onUpdate?.(partial);
+					};
+					try {
+						return await executeCalls(
+							calls,
+							parentSessionSnapshotJsonl,
+							persistentSessionDir,
+							parentModel,
+							agents,
+							ctx.cwd,
+							signal,
+							updateRuntime,
+							makeDetails,
+						);
+					} finally {
+						executionFinished = true;
+						updateSubagentFooter(ctx, undefined);
+						ctx.ui.setWidget("omega.subagents.agents", undefined);
+						deactivateFleetWidget();
+						if (!runtimeViewerOpen) restoreFleetEditor();
+					}
 				} finally {
 					for (const id of reservedSessionIds) activeSessionIds.delete(id);
 					releaseSessionLocks(lockResult.locks);

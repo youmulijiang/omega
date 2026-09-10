@@ -202,6 +202,10 @@ class BtwFullscreenHost<T> implements Component {
 		}
 		if (fullscreenCreated) {
 			try {
+				// Drain bytes already buffered by the dedicated terminal before Windows
+				// hands stdin back to the main TUI. Otherwise Tab/Ctrl+C can be replayed
+				// against the main editor and make the interface appear stuck.
+				await this.fullscreen?.terminal?.drainInput?.();
 				this.fullscreen?.stop({ preserveScreen: true });
 			} catch (error) {
 				cleanupError ??= error;
@@ -210,7 +214,6 @@ class BtwFullscreenHost<T> implements Component {
 		if (parentStopped) {
 			try {
 				this.parent.start();
-				this.parent.renderNow(false);
 			} catch (error) {
 				cleanupError ??= error;
 			}
@@ -218,6 +221,15 @@ class BtwFullscreenHost<T> implements Component {
 		if (cleanupError !== undefined) outcome = { kind: "failed", error: cleanupError };
 		this.finished = true;
 		this.done(outcome);
+		if (parentStopped) {
+			try {
+				// done() restores the main editor synchronously. Render immediately so the
+				// restored main UI is ready before control returns to the event loop.
+				this.parent.renderNow(false);
+			} catch {
+				this.parent.requestRender();
+			}
+		}
 	}
 
 	private createContext(): ExtensionCommandContext {

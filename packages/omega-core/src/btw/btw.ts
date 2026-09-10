@@ -6,29 +6,10 @@ import {
 	type ProviderHeaders,
 } from "@earendil-works/pi-ai";
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { defineMenu, type MenuContext, type RunMenuResult, runMenu } from "@narumitw/pi-tui-kit";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
-import {
-	type BtwBringToMainSegment,
-	type BtwBringToMainSummary,
-	BtwTextRangeSelector,
-	type BtwTextRangeSelectorState,
-	buildQuickBringToMainSegments,
-	estimateBringToMainTokens,
-	formatBtwBringToMain,
-	getAnsweredTurns,
-	summarizeBringToMain,
-} from "./bring-to-main.ts";
 import { type RunBtwFullscreen, runBtwFullscreen } from "./fullscreen-ui.ts";
-import { pickMainEntry } from "./main-tree-picker.ts";
-import {
-	type BtwCommandMenuResult,
-	type BtwResumeThreadSummary,
-	runBtwMenuPreservingEditor,
-	showBtwCommandMenu,
-	showBtwCustomPreservingEditor,
-} from "./menu.ts";
+import { type BtwCommandMenuResult, type BtwResumeThreadSummary, showBtwCommandMenu } from "./menu.ts";
 import {
 	type BtwSettings,
 	effectiveRememberThinkingLevelChanges,
@@ -48,6 +29,7 @@ import {
 import { sanitizeSingleLine } from "./text.ts";
 import {
 	BtwAnsweringView,
+	BtwLogView,
 	type BtwThinkingControl,
 	BtwTranscriptPager,
 	type TranscriptPagerAction,
@@ -207,20 +189,20 @@ export interface BtwExtensionDependencies {
 		ctx: ExtensionCommandContext,
 		resumeThreads: readonly BtwResumeThreadSummary[],
 	) => Promise<BtwCommandMenuResult>;
-	pickMainEntry?: typeof pickMainEntry;
 	loadSettings?: typeof loadSettingsForCommand;
 	resolveModel?: typeof resolveBtwModelWithLoader;
 	runThread?: typeof runBtwThread;
 	runFullscreen?: RunBtwFullscreen;
+	runLog?: RunBtwFullscreen;
 }
 
 export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependencies = {}): void {
 	const showCommandMenu = dependencies.showCommandMenu ?? showCommandMenuForBtw;
-	const pickEntry = dependencies.pickMainEntry ?? pickMainEntry;
 	const loadSettings = dependencies.loadSettings ?? loadSettingsForCommand;
 	const resolveModel = dependencies.resolveModel ?? resolveBtwModelWithLoader;
 	const runThread = dependencies.runThread ?? runBtwThread;
 	const runFullscreen = dependencies.runFullscreen ?? runBtwFullscreen;
+	const runLog = dependencies.runLog ?? runBtwFullscreen;
 	// Pi creates a fresh extension instance after session replacement or reload.
 	const resumableThreads = new Map<string, BtwThreadState>();
 	let nextThreadNumber = 1;
@@ -244,33 +226,9 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 			}
 
 			let menuResult: BtwCommandMenuResult = "start";
-			let selectedConversationContext: string | undefined;
 			if (!question) {
-				while (true) {
-					menuResult = await showCommandMenu(omega, ctx, listResumeThreads());
-					if (menuResult === "closed") return;
-					if (menuResult !== "tree") break;
-
-					const treeResult = await pickEntry(omega, ctx);
-					if (treeResult.kind === "closed") return;
-					if (treeResult.kind === "back") continue;
-					try {
-						if (!ctx.sessionManager.getEntry(treeResult.entryId)) {
-							notifySafely(ctx, "The selected main-thread entry is no longer available", "warning");
-							continue;
-						}
-						const branch = ctx.sessionManager.getBranch(treeResult.entryId);
-						if (branch.at(-1)?.id !== treeResult.entryId) {
-							notifySafely(ctx, "The selected main-thread branch is no longer available", "warning");
-							continue;
-						}
-						selectedConversationContext = buildConversationContext(branch);
-						menuResult = "start";
-						break;
-					} catch {
-						return;
-					}
-				}
+				menuResult = await showCommandMenu(omega, ctx, listResumeThreads());
+				if (menuResult === "closed") return;
 			}
 
 			const settings = await loadSettings(ctx);
@@ -298,10 +256,7 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 						const createdAt = Date.now();
 						state = {
 							id: `btw-${nextThreadNumber}`,
-							thread: createSideThread(
-								selectedConversationContext ??
-									buildConversationContext(fullscreenCtx.sessionManager.getBranch()),
-							),
+							thread: createSideThread(),
 							thinkingLevel: settings.thinkingLevel ?? omega.getThinkingLevel(),
 							createdAt,
 							updatedAt: createdAt,
@@ -316,7 +271,6 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 							!sameAsMainThinkingLevel && effectiveRememberThinkingLevelChanges(settings),
 						state,
 						ctx: fullscreenCtx,
-						omega,
 					});
 				});
 			} finally {
@@ -327,6 +281,33 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 					resumableThreads.set(state.id, state);
 				}
 			}
+		},
+	});
+	registerOmegaCommand(omega, "btw:log", {
+		description: "View BTW side-thread conversation history",
+		handler: async (_args, ctx) => {
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/btw:log requires interactive TUI mode", "error");
+				return;
+			}
+			const entries = [...resumableThreads.values()]
+				.filter((state) => state.thread.turns.length > 0)
+				.sort((first, second) => second.updatedAt - first.updatedAt || second.createdAt - first.createdAt)
+				.map((state) => ({
+					id: state.id,
+					title: state.title ?? "Untitled side thread",
+					turns: state.thread.turns,
+					updatedAt: state.updatedAt,
+				}));
+			if (entries.length === 0) {
+				notifySafely(ctx, "No BTW conversation history is available.", "info");
+				return;
+			}
+			await runLog(ctx, (logCtx) =>
+				logCtx.ui.custom(
+					(tui, theme, _keybindings, done) => new BtwLogView(tui, theme, entries, () => done(undefined)),
+				),
+			);
 		},
 	});
 }
@@ -406,12 +387,6 @@ async function resolveBtwModelWithLoader(
 interface RunBtwThreadDependencies {
 	ask?: typeof askThreadQuestion;
 	interact?: typeof showThreadComposer;
-	chooseBringToMain?: typeof chooseBringToMain;
-	deliverBringToMain?: (
-		draft: string,
-		ctx: ExtensionCommandContext,
-		summary: BtwBringToMainSummary,
-	) => Promise<BtwBringToMainDelivery>;
 	persistThinkingLevel?: (level: BtwThinkingLevel) => Promise<unknown>;
 	now?: () => number;
 }
@@ -426,18 +401,6 @@ interface BtwThreadSteeringControl {
 	thinking: BtwThreadThinkingControl;
 }
 
-type BtwBringToMainChoice =
-	| BtwThreadResult
-	| {
-			kind: "bringToMain";
-			draft: string;
-			summary: BtwBringToMainSummary;
-			selectionState?: BtwTextRangeSelectorState;
-	  }
-	| { kind: "back" };
-
-type BtwBringToMainDelivery = "loaded" | "back" | "closed";
-
 interface RunBtwThreadOptions {
 	initialQuestion?: string;
 	selected: ResolvedBtwModel;
@@ -446,7 +409,6 @@ interface RunBtwThreadOptions {
 	settingsPath?: string;
 	state?: BtwThreadState;
 	ctx: ExtensionCommandContext;
-	omega: Pick<OmegaAPI, "sendMessage">;
 	dependencies?: RunBtwThreadDependencies;
 }
 
@@ -458,20 +420,15 @@ export async function runBtwThread({
 	settingsPath,
 	state,
 	ctx,
-	omega,
 	dependencies = {},
 }: RunBtwThreadOptions): Promise<BtwThreadResult> {
 	const ask = dependencies.ask ?? askThreadQuestion;
 	const interact = dependencies.interact ?? showThreadComposer;
-	const chooseBringToMainAction = dependencies.chooseBringToMain ?? chooseBringToMain;
-	const deliverBringToMainDraft =
-		dependencies.deliverBringToMain ??
-		((draft, deliveryCtx, summary) => publishBringToMainResult(draft, deliveryCtx, summary, omega));
 	const persistThinkingLevel =
 		dependencies.persistThinkingLevel ??
 		((level: BtwThinkingLevel) => updateBtwSettings({ thinkingLevel: level }, { settingsPath }));
 	const now = dependencies.now ?? Date.now;
-	const thread = state?.thread ?? createSideThread(buildConversationContext(ctx.sessionManager.getBranch()));
+	const thread = state?.thread ?? createSideThread();
 	const thinkingLevels = getSupportedThinkingLevels(selected.model);
 	const pendingWrites = new Set<Promise<void>>();
 	const steeringQuestions: string[] = [];
@@ -508,18 +465,6 @@ export async function runBtwThread({
 			if (!pendingQuestion) {
 				const action = await interact(thread, thread.turns.length > 0, ctx, composerDraft, createThinkingControl());
 				if (action.kind === "close") return { kind: "closed" };
-				if (action.kind === "bringToMain") {
-					const choice = await chooseBringToMainAction(thread, ctx);
-					if (choice.kind === "closed") return choice;
-					if (choice.kind === "back") {
-						composerDraft = action.questionDraft;
-						continue;
-					}
-					const delivery = await deliverBringToMainDraft(choice.draft, ctx, choice.summary);
-					if (delivery === "loaded" || delivery === "closed") return { kind: "closed" };
-					composerDraft = action.questionDraft;
-					continue;
-				}
 				composerDraft = undefined;
 				pendingQuestion = action.question;
 			}
@@ -550,226 +495,6 @@ export async function runBtwThread({
 	} finally {
 		await Promise.allSettled([...pendingWrites]);
 	}
-}
-
-interface ChooseBringToMainDependencies {
-	showMenu?: typeof showBtwMenu;
-	showPreview?: typeof showBringToMainPreview;
-}
-
-export async function chooseBringToMain(
-	thread: SideThread,
-	ctx: ExtensionCommandContext,
-	dependencies: ChooseBringToMainDependencies = {},
-): Promise<BtwBringToMainChoice> {
-	const answered = getAnsweredTurns(thread.turns);
-	if (answered.length === 0) return { kind: "back" };
-	const showMenu = dependencies.showMenu ?? showBtwMenu;
-	const showPreview = dependencies.showPreview ?? showBringToMainPreview;
-	const makeChoice = (segments: readonly BtwBringToMainSegment[]) => ({
-		kind: "bringToMain" as const,
-		draft: formatBtwBringToMain(segments),
-		summary: summarizeBringToMain(segments),
-	});
-
-	const latestSegments = buildQuickBringToMainSegments(thread.turns, { kind: "latest" });
-	const entireSegments = buildQuickBringToMainSegments(thread.turns, { kind: "entire" });
-	const latestOption = `Latest question and answer  1 Q&A · ~${estimateBringToMainTokens(latestSegments)} tokens`;
-	const fromOption = "From a question onward…  Choose a starting question";
-	const exactOption = "Select exact text…  Lines or characters";
-	const entireOption = `Entire side thread  ${answered.length} Q&A · ~${estimateBringToMainTokens(entireSegments)} tokens`;
-	const cancelOption = "Cancel  Return to the side thread";
-	let selectedScope: string | undefined;
-
-	while (true) {
-		const scopeResult = await showMenu(
-			ctx,
-			"Bring what back to the main thread?",
-			[latestOption, fromOption, exactOption, entireOption, cancelOption],
-			selectedScope,
-		);
-		if (scopeResult.kind === "close") return { kind: "closed" };
-		if (scopeResult.kind === "back" || scopeResult.value === cancelOption) return { kind: "back" };
-		const scope = scopeResult.value;
-		selectedScope = scope;
-		if (scope === latestOption) return makeChoice(latestSegments);
-		if (scope === entireOption) {
-			const choice = makeChoice(entireSegments);
-			const preview = await showPreview(ctx, choice.draft, choice.summary);
-			if (preview.kind === "close") return { kind: "closed" };
-			if (preview.kind === "back") continue;
-			return choice;
-		}
-		if (scope === fromOption) {
-			const questions = answered.map(
-				(turn, index) => `${index + 1}. ${truncatePreview(sanitizeSingleLine(turn.question))}`,
-			);
-			let selectedQuestion: string | undefined;
-			while (true) {
-				const questionResult = await showMenu(ctx, "Start from which question?", questions, selectedQuestion);
-				if (questionResult.kind === "close") return { kind: "closed" };
-				if (questionResult.kind === "back") break;
-				const answeredTurnIndex = questions.indexOf(questionResult.value);
-				if (answeredTurnIndex < 0) continue;
-				selectedQuestion = questionResult.value;
-				const choice = makeChoice(buildQuickBringToMainSegments(thread.turns, { kind: "from", answeredTurnIndex }));
-				const preview = await showPreview(ctx, choice.draft, choice.summary);
-				if (preview.kind === "close") return { kind: "closed" };
-				if (preview.kind === "back") continue;
-				return choice;
-			}
-			continue;
-		}
-
-		if (scope !== exactOption) continue;
-		let selectionState: BtwTextRangeSelectorState | undefined;
-		while (true) {
-			const selectedRange = await showBtwCustomPreservingEditor<BtwBringToMainChoice>(
-				ctx,
-				(tui, theme, keybindings, done) => {
-					let selector: BtwTextRangeSelector;
-					selector = new BtwTextRangeSelector(
-						tui,
-						theme,
-						keybindings,
-						thread.turns,
-						(action) => {
-							if (action.kind === "back") done({ kind: "back" });
-							else if (action.kind === "close") done({ kind: "closed" });
-							else done({ ...makeChoice(action.segments), selectionState: selector.getState() });
-						},
-						selectionState,
-					);
-					return selector;
-				},
-			);
-			if (!selectedRange) return { kind: "closed" };
-			if (selectedRange.kind === "closed") return selectedRange;
-			if (selectedRange.kind === "back") break;
-			const preview = await showPreview(ctx, selectedRange.draft, selectedRange.summary);
-			if (preview.kind === "close") return { kind: "closed" };
-			if (preview.kind === "back") {
-				selectionState = selectedRange.selectionState;
-				continue;
-			}
-			return {
-				kind: "bringToMain",
-				draft: selectedRange.draft,
-				summary: selectedRange.summary,
-			};
-		}
-	}
-}
-
-type BtwMenuSelectorAction = { kind: "select"; value: string } | { kind: "back" } | { kind: "close" };
-
-type BtwBringToMainPreviewAction = { kind: "bring" } | { kind: "back" } | { kind: "close" };
-
-async function showBringToMainPreview(
-	ctx: ExtensionCommandContext,
-	draft: string,
-	summary: BtwBringToMainSummary,
-): Promise<BtwBringToMainPreviewAction> {
-	if (ctx.signal?.aborted) return { kind: "close" };
-	let confirmed = false;
-	const count = summary.messages === 1 ? "1 message" : `${summary.messages} messages`;
-	const lineCount = summary.lines === 1 ? "1 line" : `${summary.lines} lines`;
-	const menu = defineMenu<void, "preview", "bring", MenuContext>({
-		start: "preview",
-		screens: {
-			preview: () => ({
-				kind: "review",
-				title: `Preview · ${count} · ${lineCount} · ~${summary.tokens} tokens`,
-				content: draft,
-				viewportSize: "adaptive",
-				hint: "back",
-				confirm: { id: "bring", label: "Bring", action: "bring" },
-			}),
-		},
-		actions: {
-			bring: async () => {
-				confirmed = true;
-				return { kind: "close" } as const;
-			},
-		},
-	});
-	const result = await runBtwMenuPreservingEditor(ctx, (menuContext) =>
-		runMenu(menuContext, menu, { getState: () => undefined }),
-	);
-	if (confirmed && result.kind === "closed" && result.reason === "close") {
-		return { kind: "bring" };
-	}
-	return terminalBtwMenuAction(result);
-}
-
-async function showBtwMenu(
-	ctx: ExtensionCommandContext,
-	title: string,
-	options: readonly string[],
-	initialValue?: string,
-): Promise<BtwMenuSelectorAction> {
-	if (ctx.signal?.aborted) return { kind: "close" };
-	const items = options.map((label, index) => ({ id: `option-${index}`, label }));
-	const initialIndex = initialValue === undefined ? -1 : options.indexOf(initialValue);
-	let selectedValue: string | undefined;
-	const menu = defineMenu<void, "choices", "select", MenuContext>({
-		start: "choices",
-		screens: {
-			choices: () => ({
-				kind: "choice",
-				title,
-				items,
-				action: "select",
-				initialItemId: initialIndex >= 0 ? `option-${initialIndex}` : undefined,
-				hint: "back",
-			}),
-		},
-		actions: {
-			select: async ({ itemId }: { itemId: string }) => {
-				const index = Number.parseInt(itemId.slice("option-".length), 10);
-				selectedValue = options[index];
-				return selectedValue === undefined ? ({ kind: "stay" } as const) : ({ kind: "close" } as const);
-			},
-		},
-	});
-	const result = await runBtwMenuPreservingEditor(ctx, (menuContext) =>
-		runMenu(menuContext, menu, { getState: () => undefined }),
-	);
-	return selectedValue !== undefined && result.kind === "closed" && result.reason === "close"
-		? { kind: "select", value: selectedValue }
-		: terminalBtwMenuAction(result);
-}
-
-function terminalBtwMenuAction(result: RunMenuResult): { kind: "back" } | { kind: "close" } {
-	if (result.kind === "closed") return { kind: result.reason };
-	if (result.kind === "error") throw result.error;
-	return { kind: "close" };
-}
-
-export async function publishBringToMainResult(
-	draft: string,
-	ctx: ExtensionCommandContext,
-	summary: BtwBringToMainSummary,
-	omega: Pick<OmegaAPI, "sendMessage">,
-): Promise<BtwBringToMainDelivery> {
-	omega.sendMessage(
-		{
-			customType: "btw-result",
-			content: draft,
-			display: true,
-			details: summary,
-		},
-		{ triggerTurn: false },
-	);
-	ctx.ui.notify(
-		`Returned ${summary.messages} ${summary.messages === 1 ? "message" : "messages"} from BTW to the main conversation.`,
-		"info",
-	);
-	return "loaded";
-}
-
-function truncatePreview(text: string): string {
-	return text.length <= 72 ? text : `${text.slice(0, 69)}…`;
 }
 
 async function askThreadQuestion(
@@ -855,38 +580,32 @@ type SessionEntry = {
 	message?: SessionMessage;
 };
 
-export function buildConversationContext(entries: readonly SessionEntry[]) {
+/** Shared conversation projection used by /study; BTW itself never calls this. */
+export function buildConversationContext(entries: readonly SessionEntry[]): string {
 	const sections: string[] = [];
-
 	for (const entry of entries) {
 		if (entry.type !== "message" || !entry.message?.role) continue;
-
 		const role = entry.message.role;
 		if (role !== "user" && role !== "assistant") continue;
-
 		const contentLines = extractContentLines(entry.message.content);
 		if (contentLines.length === 0) continue;
-
 		const label = role === "user" ? "User" : "Assistant";
 		const status =
 			entry.message.stopReason && entry.message.stopReason !== "stop" ? ` (${entry.message.stopReason})` : "";
 		sections.push(`${label}${status}: ${contentLines.join("\n")}`);
 	}
-
 	return truncateFromStart(sections.join("\n\n"), MAX_CONTEXT_CHARS);
 }
 
 function extractContentLines(content: unknown): string[] {
 	if (typeof content === "string") return [content.trim()].filter(Boolean);
 	if (!Array.isArray(content)) return [];
-
 	const lines: string[] = [];
 	for (const part of content) {
 		if (!part || typeof part !== "object") continue;
 		const block = part as MessageContentBlock;
-		if (block.type === "text" && typeof block.text === "string") {
-			lines.push(block.text.trim());
-		} else if (block.type === "toolCall" && typeof block.name === "string") {
+		if (block.type === "text" && typeof block.text === "string") lines.push(block.text.trim());
+		else if (block.type === "toolCall" && typeof block.name === "string") {
 			lines.push(`Tool call: ${block.name}(${formatJson(block.arguments)})`);
 		} else if (block.type === "toolResult" && typeof block.name === "string") {
 			lines.push(`Tool result from ${block.name}: ${formatJson(block.result)}`);
@@ -895,7 +614,7 @@ function extractContentLines(content: unknown): string[] {
 	return lines.filter(Boolean);
 }
 
-function formatJson(value: unknown) {
+function formatJson(value: unknown): string {
 	if (value === undefined) return "";
 	try {
 		return JSON.stringify(value);
@@ -904,7 +623,8 @@ function formatJson(value: unknown) {
 	}
 }
 
-function truncateFromStart(text: string, maxChars: number) {
-	if (text.length <= maxChars) return text;
-	return `[Earlier context omitted; showing the last ${maxChars} characters.]\n${text.slice(-maxChars)}`;
+function truncateFromStart(text: string, maxChars: number): string {
+	return text.length <= maxChars
+		? text
+		: `[Earlier context omitted; showing the last ${maxChars} characters.]\n${text.slice(-maxChars)}`;
 }

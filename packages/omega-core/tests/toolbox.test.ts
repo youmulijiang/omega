@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatBashCallHighlighted, highlightBashCommand } from "../src/ui/bash-highlight.ts";
 import { loadToolboxConfig } from "../src/ui/toolbox-config.ts";
-import { stripBackgroundFills } from "../src/ui/toolbox-frame.ts";
+import { collapseToolboxContent, stripBackgroundFills } from "../src/ui/toolbox-frame.ts";
+import type { ToolboxTheme } from "../src/ui/toolbox-theme.ts";
+
+const plainTheme = {
+	fg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+} satisfies ToolboxTheme;
 
 describe("toolbox UI", () => {
 	it("highlights command positions, flags, variables, strings, and operators", () => {
@@ -29,6 +35,23 @@ describe("toolbox UI", () => {
 		expect(stripBackgroundFills("\u001b[48;2;1;2;3mA\u001b[42mB\u001b[31mC\u001b[49m")).toBe(
 			"AB\u001b[31mC\u001b[49m",
 		);
+	});
+
+	it("keeps five lines by default and reports the hidden line count", () => {
+		const lines = ["one", "two", "three", "four", "five", "six", "seven"];
+		expect(collapseToolboxContent(lines, false, plainTheme)).toEqual([
+			"one",
+			"two",
+			"three",
+			"four",
+			"five",
+			expect.stringContaining("2 more lines"),
+		]);
+	});
+
+	it("shows all toolbox content when expanded", () => {
+		const lines = ["one", "two", "three", "four", "five", "six"];
+		expect(collapseToolboxContent(lines, true, plainTheme)).toBe(lines);
 	});
 
 	it("loads typed settings with defaults for invalid values", () => {

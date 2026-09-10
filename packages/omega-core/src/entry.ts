@@ -15,6 +15,7 @@ import { registerStudy } from "./study/index.ts";
 import { registerSubagents } from "./subagents/index.ts";
 import { registerTools } from "./tools/index.ts";
 import { registerUi } from "./ui/index.ts";
+import { registerWorkflows } from "./workflows/index.ts";
 
 /**
  * OMEGA 核心扩展入口。
@@ -39,4 +40,5 @@ export default function omegaExtension(pi: ExtensionAPI): void {
 	registerStudy(omega);
 	registerTools(omega);
 	registerUi(omega);
+	registerWorkflows(omega);
 }

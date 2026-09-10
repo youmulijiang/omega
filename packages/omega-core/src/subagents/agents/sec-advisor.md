@@ -1,7 +1,7 @@
 ---
 name: sec-advisor
 description: 安全方案评估专家。评估安全架构、修复方案与渗透测试发现的处置建议，给出独立第二意见，不修改文件
-tools: read, grep, find, ls
+tools: read, grep, find, ls, workflow
 thinking: high
 sessionPreference: persistent
 sessionHint: 同一方案的多轮评估使用按方案命名的持久会话（如 session="review-zero-trust-design"）；单点咨询使用临时调用。

@@ -80,9 +80,9 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		name: "timeout",
 		required: false,
 		schemaDescription:
-			"Optional exceptional positive integer absolute wall-clock deadline in seconds. Independent of inactivityTimeout. Omit for ordinary stuck-run protection.",
+			"Optional positive integer absolute wall-clock deadline in seconds. Independent of inactivityTimeout. Defaults to 1800 seconds; timed-out processes are terminated and release their queue slot.",
 		promptDescription:
-			"exceptional positive integer absolute wall-clock deadline in seconds, independent of `inactivityTimeout`. Omit it for ordinary stuck-run protection",
+			"positive integer absolute wall-clock deadline in seconds, independent of `inactivityTimeout`. It defaults to 1800 seconds; timeout terminates the child and lets the queue continue",
 	},
 ];
 
@@ -105,6 +105,17 @@ function formatDelegationRules(): string {
 		"- Use `session` for multi-turn specialist work; omit it for one-off delegation, when the parent is running with `--no-session`, or from temporary parent-seeded subagent sessions.",
 		"- Agent-specific session preference and hint lines are advisory only. The tool creates or continues a persistent session only when a call includes `session`.",
 		'- Prefer `initialContext: "empty"` and pass relevant task context deliberately. Parent cloning is exceptional because it is expensive and carries the parent conversation\'s authority.',
+	].join("\n");
+}
+
+function formatAgentSelectionRules(): string {
+	return [
+		"- Read the current conversation context and the call prompt together. Infer the task domain, expected deliverable, required tools, permission boundary, and whether repository changes are needed.",
+		"- Select the single most specific available agent whose description matches those requirements. Prefer a domain specialist over a generic worker; do not select an agent merely because its tools could perform the task.",
+		"- Reuse a relevant project agent when it is tailored to this repository. Otherwise prefer a matching built-in agent.",
+		"- If no existing agent has a clear scenario match, call `explore` first. Tell it the unmet task, relevant conversation context, available agent names/descriptions, and require it to create a reusable project agent under `.omega/agents/*.md`.",
+		"- After `explore` returns a created agent name, invoke that agent in a new `subagent` tool call. A newly-created agent is discovered only by a subsequent invocation; never place its first call in the same `calls` array as `explore`.",
+		"- Do not use `explore` when an existing specialist already fits, and do not create a project agent for a one-off variation that an existing agent can handle safely.",
 	].join("\n");
 }
 
@@ -167,6 +178,10 @@ ${formatSubagentUsageExample()}
 
 Each call runs in an isolated \`pi\` process. Multiple calls may run concurrently.
 
+### Agent selection
+
+${formatAgentSelectionRules()}
+
 Fields:
 ${formatCallFieldList()}
 
@@ -187,11 +202,14 @@ export function formatSubagentToolDescription(): string {
 		"",
 		"Use exactly one top-level `calls` array for both one and many invocations.",
 		"Each call requires `agent` and `prompt`; `prompt` is sent verbatim.",
+		"Choose agents from the conversation context and prompt: use the most specific matching existing agent; if none fits, call `explore` to create a project agent, then invoke the new agent in a subsequent tool call.",
 		"",
 		"Fields:",
 		formatCallFieldList(),
 		"",
 		"Rules:",
+		formatAgentSelectionRules(),
+		"",
 		formatDelegationRules(),
 		"",
 		"Multiple calls may run concurrently.",

@@ -4,6 +4,7 @@ import { getToolboxTheme, type ToolboxTheme } from "./toolbox-theme.ts";
 
 const BACKGROUND_FILL = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/g;
 const ANSI = /\x1b\[[0-9;:?]*[ -/]*[@-~]/g;
+const COLLAPSED_CONTENT_LINES = 5;
 
 export function stripBackgroundFills(line: string): string {
 	return line.replace(BACKGROUND_FILL, "");
@@ -32,8 +33,23 @@ function collapseAnchorLine(theme: ToolboxTheme): string | undefined {
 	}
 }
 
+function expandAnchorLine(theme: ToolboxTheme, remainingLines: number): string {
+	const prefix = theme.fg("muted", `... (${remainingLines} more ${remainingLines === 1 ? "line" : "lines"}`);
+	try {
+		const keys = keyText("app.tools.expand");
+		return keys ? `${prefix}, ${theme.fg("dim", keys)}${theme.fg("muted", " to expand)")}` : `${prefix})`;
+	} catch {
+		return `${prefix})`;
+	}
+}
+
+export function collapseToolboxContent(lines: string[], expanded: boolean, theme: ToolboxTheme): string[] {
+	if (expanded || lines.length <= COLLAPSED_CONTENT_LINES) return lines;
+	return [...lines.slice(0, COLLAPSED_CONTENT_LINES), expandAnchorLine(theme, lines.length - COLLAPSED_CONTENT_LINES)];
+}
+
 function fingerprint(lines: string[]): string {
-	return lines.length === 0 ? "" : `${lines.length}|${lines[0]}|${lines[lines.length - 1]}`;
+	return lines.join("\u0000");
 }
 
 interface Renderable {
@@ -91,7 +107,7 @@ export function patchToolBoxFrames(collapseAnchor = true): void {
 			)
 				return cache.output;
 
-			const content = trimBlankEdges(raw);
+			const content = collapseToolboxContent(trimBlankEdges(raw), this.expanded, theme);
 			if (collapseAnchor && this.expanded && content.length > 0) {
 				const anchor = collapseAnchorLine(theme);
 				if (anchor) content.push(anchor);

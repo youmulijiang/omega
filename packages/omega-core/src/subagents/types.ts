@@ -42,6 +42,8 @@ export interface SingleResult {
 	session?: SubagentSessionDetails;
 	exitCode: number;
 	messages: Message[];
+	/** Validated arguments captured from a terminating structured_output tool call. */
+	structuredOutput?: unknown;
 	stderr: string;
 	stderrTruncated?: boolean;
 	usage: UsageStats;
@@ -99,15 +101,26 @@ export function hasFinalAssistantOutput(r: Pick<SingleResult, "messages">): bool
 	return getFinalAssistantText(r.messages).trim().length > 0;
 }
 
+/** Whether the child returned a structured workflow value. */
+export function hasStructuredOutput(r: Pick<SingleResult, "structuredOutput">): boolean {
+	return r.structuredOutput !== undefined;
+}
+
 /** Whether the child semantically completed the run successfully. */
 export function hasSemanticCompletion(
 	r: Pick<
 		SingleResult,
-		"messages" | "sawAgentEnd" | "stopReason" | "errorMessage" | "pendingToolError" | "handledWithoutAgent"
+		| "messages"
+		| "structuredOutput"
+		| "sawAgentEnd"
+		| "stopReason"
+		| "errorMessage"
+		| "pendingToolError"
+		| "handledWithoutAgent"
 	>,
 ): boolean {
 	if (r.handledWithoutAgent) return true;
-	if (!r.sawAgentEnd || !hasFinalAssistantOutput(r)) return false;
+	if (!r.sawAgentEnd || (!hasFinalAssistantOutput(r) && !hasStructuredOutput(r))) return false;
 	if (r.stopReason === "aborted") return false;
 	if (r.stopReason === "error") return hasAttributedToolError(r);
 	return true;

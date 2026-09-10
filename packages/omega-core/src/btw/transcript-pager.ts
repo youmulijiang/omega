@@ -43,16 +43,133 @@ class PreservingScrollView extends ScrollView {
 	}
 }
 
-export type TranscriptPagerAction =
-	| { kind: "submit"; question: string }
-	| { kind: "bringToMain"; questionDraft: string }
-	| { kind: "close" };
+export type TranscriptPagerAction = { kind: "submit"; question: string } | { kind: "close" };
 
 export interface BtwThinkingControl {
 	level: BtwThinkingLevel;
 	levels: readonly BtwThinkingLevel[];
 	keybindings: KeybindingsManager;
 	onChange: (level: BtwThinkingLevel) => void;
+}
+
+export interface BtwLogEntry {
+	id: string;
+	title: string;
+	turns: readonly SideThreadTurn[];
+	updatedAt: number;
+}
+
+export class BtwLogView implements BtwFullscreenLayoutComponent, Focusable {
+	private readonly tui: TUI;
+	private readonly theme: Theme;
+	private readonly entries: readonly BtwLogEntry[];
+	private readonly onClose: () => void;
+	private readonly scrollView: PreservingScrollView;
+	private readonly content: Component;
+	private selectedIndex = 0;
+	private transcriptComponents: Component[] = [];
+	private contentLineCount = 0;
+	private isFocused = false;
+	private finished = false;
+
+	constructor(tui: TUI, theme: Theme, entries: readonly BtwLogEntry[], onClose: () => void) {
+		this.tui = tui;
+		this.theme = theme;
+		this.entries = entries;
+		this.onClose = onClose;
+		this.content = {
+			render: (width) => renderTranscriptLines(this.transcriptComponents, width),
+			invalidate: () => {
+				for (const component of this.transcriptComponents) component.invalidate();
+			},
+		};
+		this.scrollView = new PreservingScrollView(this.content, { follow: "none", primary: true });
+		this.selectEntry(0);
+	}
+
+	get focused(): boolean {
+		return this.isFocused;
+	}
+
+	set focused(value: boolean) {
+		this.isFocused = value;
+	}
+
+	getFullscreenLayout(): Component {
+		return this;
+	}
+
+	render(width: number): string[] {
+		const safeWidth = Math.max(1, width);
+		const availableRows = Math.max(1, this.tui.terminal.rows - RESERVED_APP_LINES);
+		const viewportHeight = Math.max(0, availableRows - 2);
+		const contentLines = renderTranscriptLines(this.transcriptComponents, safeWidth);
+		this.contentLineCount = contentLines.length;
+		this.scrollView.updateLayout(contentLines.length, viewportHeight, () => this.tui.requestRender());
+		const visibleLines = contentLines.slice(this.scrollView.scrollTop, this.scrollView.scrollTop + viewportHeight);
+		const lines = [this.renderHeader(safeWidth), ...visibleLines, this.renderFooter(safeWidth)];
+		return lines.length <= availableRows ? lines : lines.slice(0, availableRows);
+	}
+
+	handleInput(data: string): void {
+		if (this.finished) return;
+		if (matchesKey(data, Key.ctrl("c"))) {
+			this.finished = true;
+			this.onClose();
+			return;
+		}
+		if (this.entries.length > 1 && (matchesKey(data, Key.tab) || matchesKey(data, "shift+tab"))) {
+			const direction = matchesKey(data, "shift+tab") ? -1 : 1;
+			this.selectEntry(this.selectedIndex + direction);
+			this.tui.requestRender();
+			return;
+		}
+		if (matchesKey(data, Key.pageUp)) {
+			this.scrollView.scrollBy(-Math.max(1, this.scrollView.viewportHeight));
+			this.tui.requestRender();
+			return;
+		}
+		if (matchesKey(data, Key.pageDown)) {
+			this.scrollView.scrollBy(Math.max(1, this.scrollView.viewportHeight));
+			this.tui.requestRender();
+		}
+	}
+
+	invalidate(): void {
+		this.content.invalidate();
+	}
+
+	dispose(): void {
+		if (this.finished) return;
+		this.finished = true;
+		this.onClose();
+	}
+
+	private selectEntry(index: number): void {
+		if (this.entries.length === 0) return;
+		this.selectedIndex = (index + this.entries.length) % this.entries.length;
+		const entry = this.entries[this.selectedIndex];
+		this.transcriptComponents = entry ? buildTranscriptComponents(entry.turns, this.theme) : [];
+		this.scrollView.scrollTo(0, { disableFollow: true });
+	}
+
+	private renderHeader(width: number): string {
+		const tabs = this.entries
+			.map((entry, index) => {
+				const label = `${index + 1}. ${sanitizeSingleLine(entry.title) || "Untitled"}`;
+				return index === this.selectedIndex
+					? this.theme.fg("accent", `[${label}]`)
+					: this.theme.fg("dim", ` ${label} `);
+			})
+			.join(" ");
+		return truncateToWidth(this.theme.fg("muted", `─ btw log · ${tabs} `), width);
+	}
+
+	private renderFooter(width: number): string {
+		const switchHint = this.entries.length > 1 ? "Tab/Shift+Tab switch" : "single session";
+		const historyHint = this.contentLineCount > this.scrollView.viewportHeight ? " • PgUp/PgDn history" : "";
+		return truncateToWidth(this.theme.fg("muted", `btw:log • ${switchHint}${historyHint} • Ctrl+C exit`), width);
+	}
 }
 
 export interface BtwAnsweringViewOptions {
@@ -74,7 +191,6 @@ export class BtwTranscriptPager implements BtwFullscreenLayoutComponent, Focusab
 	};
 	private readonly transcriptComponents: Component[];
 	private readonly editor: Editor;
-	private readonly canBringToMain: boolean;
 	private readonly scrollView: ScrollView;
 	private readonly layoutRoot: VStack;
 	private lastContentLineCount = 0;
@@ -99,7 +215,6 @@ export class BtwTranscriptPager implements BtwFullscreenLayoutComponent, Focusab
 		this.onAction = onAction;
 		this.options = options;
 		this.transcriptComponents = buildTranscriptComponents(turns, this.theme);
-		this.canBringToMain = turns.some((turn) => turn.kind === "answered");
 		this.thinkingLevel = options.thinking?.level;
 		const editorTheme: EditorTheme = {
 			borderColor: (text) => this.theme.fg("accent", text),
@@ -176,11 +291,6 @@ export class BtwTranscriptPager implements BtwFullscreenLayoutComponent, Focusab
 			this.onAction({ kind: "close" });
 			return;
 		}
-		if (this.canBringToMain && matchesKey(data, Key.ctrl("r"))) {
-			this.finished = true;
-			this.onAction({ kind: "bringToMain", questionDraft: this.editor.getExpandedText() });
-			return;
-		}
 		const thinking = this.options.thinking;
 		if (thinking && thinking.levels.length > 1 && thinking.keybindings.matches(data, "app.thinking.cycle")) {
 			const currentIndex = thinking.levels.indexOf(this.thinkingLevel ?? thinking.level);
@@ -228,12 +338,10 @@ export class BtwTranscriptPager implements BtwFullscreenLayoutComponent, Focusab
 			thinking && thinking.levels.length > 1 && this.thinkingLevel
 				? ` • thinking ${this.thinkingLevel} • ${thinkingKeyLabel(thinking.keybindings)} cycle`
 				: "";
-		const base = this.canBringToMain
-			? "btw • Enter send • Ctrl+R bring to main • Ctrl+C exit"
-			: "btw • Enter send • Ctrl+C exit";
+		const base = "btw • Enter send • Ctrl+C exit";
 		const fullBase = `${base}${cycleHint}`;
 		const fallbackBase = "btw • Enter • Ctrl+C";
-		const compactBase = this.canBringToMain ? "btw • Enter • Ctrl+R • Ctrl+C" : fallbackBase;
+		const compactBase = fallbackBase;
 		const compactWithThinking = `${compactBase}${cycleHint}`;
 		let hints =
 			visibleWidth(fullBase) <= width
@@ -246,9 +354,7 @@ export class BtwTranscriptPager implements BtwFullscreenLayoutComponent, Focusab
 		if (scrollable) {
 			const history = ` • ${this.scrollView.scrollTop > 0 ? "↑ older" : "↓ newer"} • PgUp/PgDn history`;
 			const compactHistory = " • PgUp/PgDn";
-			const compactScrollable = this.canBringToMain
-				? "Enter • Ctrl+R • Ctrl+C • PgUp/PgDn"
-				: `${fallbackBase}${compactHistory}`;
+			const compactScrollable = `${fallbackBase}${compactHistory}`;
 			if (visibleWidth(`${hints}${history}`) <= width) {
 				hints += history;
 			} else if (visibleWidth(`${compactBase}${history}`) <= width) {

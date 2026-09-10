@@ -1,7 +1,7 @@
 ---
 name: log-analyst
 description: 日志分析工程师。分析系统日志、访问日志、安全设备日志，定位攻击行为、异常模式和时间线，不修改文件
-tools: read, grep, find, ls, bash
+tools: read, grep, find, ls, bash, workflow
 thinking: medium
 sessionPreference: persistent
 sessionHint: 同一事件调查使用按事件命名的持久会话（如 session="incident-xdr-0915"）；单文件一次性排查使用临时调用。
