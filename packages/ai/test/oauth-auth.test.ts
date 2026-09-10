@@ -3,9 +3,11 @@ import { InMemoryCredentialStore } from "../src/auth/credential-store.ts";
 import { anthropicOAuth } from "../src/auth/oauth/anthropic.ts";
 import { githubCopilotOAuth } from "../src/auth/oauth/github-copilot.ts";
 import { kimiCodingOAuth } from "../src/auth/oauth/kimi-coding.ts";
+import { loadXaiOAuth } from "../src/auth/oauth/load.ts";
 import { openaiCodexOAuth } from "../src/auth/oauth/openai-codex.ts";
 import { openRouterOAuth } from "../src/auth/oauth/openrouter.ts";
 import { xaiOAuth } from "../src/auth/oauth/xai.ts";
+import { registerBunOAuthFlows } from "../src/bun-oauth.ts";
 import { createModels } from "../src/models.ts";
 import * as extensionOAuthCompatibility from "../src/oauth.ts";
 import { anthropicProvider } from "../src/providers/anthropic.ts";
@@ -18,6 +20,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe.sequential("OAuthAuth adapters", () => {
+	it("registers the xAI OAuth flow for standalone Bun binaries", async () => {
+		registerBunOAuthFlows();
+
+		await expect(loadXaiOAuth()).resolves.toMatchObject({ name: "xAI (Grok/X subscription)" });
+	});
+
 	it("keeps the extension OAuth barrel free of built-in flow implementations", () => {
 		expect(extensionOAuthCompatibility).not.toHaveProperty("loginAnthropic");
 		expect(extensionOAuthCompatibility).not.toHaveProperty("anthropicOAuth");

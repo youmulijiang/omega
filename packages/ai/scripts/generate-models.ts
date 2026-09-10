@@ -80,6 +80,16 @@ function readGeneratorOptions(args: string[]): {
 
 const generatorOptions = readGeneratorOptions(process.argv.slice(2));
 
+function cleanupGenerationStagingDirectory(directory: string): void {
+	try {
+		rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	} catch (error) {
+		const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+		if (code !== "EPERM" && code !== "EBUSY" && code !== "ENOTEMPTY") throw error;
+		console.warn(`Warning: could not remove model-generation staging directory (${code}): ${directory}`);
+	}
+}
+
 interface ModelsDevModel {
 	id: string;
 	name: string;
@@ -2962,7 +2972,7 @@ async function generateModels() {
 			restoreGeneratedCatalog?.();
 			throw error;
 		} finally {
-			rmSync(stagingRoot, { recursive: true, force: true });
+			cleanupGenerationStagingDirectory(stagingRoot);
 		}
 	}
 

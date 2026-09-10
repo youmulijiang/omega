@@ -22,44 +22,57 @@ type OAuthFlowLoaders = {
 };
 
 let bundledLoaders: OAuthFlowLoaders | undefined;
+const BUNDLED_LOADERS_KEY = Symbol.for("@earendil-works/pi-ai.bundled-oauth-flow-loaders");
+
+function getBundledLoaders(): OAuthFlowLoaders | undefined {
+	return bundledLoaders ?? (Reflect.get(globalThis, BUNDLED_LOADERS_KEY) as OAuthFlowLoaders | undefined);
+}
 
 /** Registers statically bundled OAuth flows for standalone Bun binaries. */
 export function registerBundledOAuthFlowLoaders(loaders: OAuthFlowLoaders): void {
 	bundledLoaders = loaders;
+	Reflect.set(globalThis, BUNDLED_LOADERS_KEY, loaders);
 }
 
 export const loadAnthropicOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.anthropic();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.anthropic();
 	return ((await importOAuthModule("./anthropic.ts")) as { anthropicOAuth: OAuthAuth }).anthropicOAuth;
 };
 
 export const loadOpenAICodexOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.openaiCodex();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.openaiCodex();
 	return ((await importOAuthModule("./openai-codex.ts")) as { openaiCodexOAuth: OAuthAuth }).openaiCodexOAuth;
 };
 
 export const loadGitHubCopilotOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.githubCopilot();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.githubCopilot();
 	return ((await importOAuthModule("./github-copilot.ts")) as { githubCopilotOAuth: OAuthAuth }).githubCopilotOAuth;
 };
 
 export const loadOpenRouterOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.openrouter();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.openrouter();
 	return ((await importOAuthModule("./openrouter.ts")) as { openRouterOAuth: OAuthAuth }).openRouterOAuth;
 };
 
 export const loadKimiCodingOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.kimiCoding();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.kimiCoding();
 	return ((await importOAuthModule("./kimi-coding.ts")) as { kimiCodingOAuth: OAuthAuth }).kimiCodingOAuth;
 };
 
 export const loadXaiOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.xai();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.xai();
 	return ((await importOAuthModule("./xai.ts")) as { xaiOAuth: OAuthAuth }).xaiOAuth;
 };
 
 export const loadRadiusOAuth = async (options: { name: string; gateway: string }): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.radius(options);
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.radius(options);
 	return (
 		(await importOAuthModule("./radius.ts")) as {
 			createRadiusOAuth: (input: { name: string; gateway: string }) => OAuthAuth;
