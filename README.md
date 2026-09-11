@@ -1,114 +1,126 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# Omega
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Omega 是基于 [Pi Coding Agent](https://pi.dev) 的可扩展智能体工作台，面向代码工程、授权安全测试和多智能体协作场景。它通过 Pi 的 Extension API 注入统一能力，不修改 Pi 内核。
 
-# Pi Agent Harness
+> 安全测试功能仅用于合法授权的靶场、测试环境和明确授权的目标。
 
-This is the home of the Pi agent harness project including our self extensible coding agent.
+## 特性
 
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+- **多智能体协作**：在独立子进程中运行场景 Agent，支持串行、并行和链式任务。
+- **Workflow 编排**：使用受限 JavaScript DSL 编排阶段、Agent、任务和独立验证流程。
+- **安全测试工作流**：内置 `security-worker`、`websec-tester`、`sec-advisor`、`log-analyst` 和 `osint-analyst`。
+- **项目知识与记忆**：支持知识目录、记忆检索，以及项目级上下文和规则。
+- **权限与范围控制**：通过 `.omega/agent/permissions.json` 和 `scope.md` 描述工具权限、目标范围与排除项。
+- **后台任务与委派**：支持后台运行、任务状态、日志、取消和子进程委派。
+- **浏览器与 MCP**：提供 Chrome DevTools 工具和 MCP 工具接入能力。
 
-To learn more about Pi:
+## 快速开始
 
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+### 环境要求
 
-## All Packages
-
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Permissions & Containerization
-
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
-
-## Development
+- Node.js `>=22.19.0`
+- npm
+- 一个已配置的 LLM Provider 凭据（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`）
 
 ```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+npm install --ignore-scripts
+npx omega init
 ```
 
-## Building standalone binaries from release source
-
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
+开发环境启动：
 
 ```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
+# Unix
+./pi-test.sh
+
+# Windows PowerShell
+./omega-test.ps1
 ```
 
-The source archive includes the generated provider model data used for the release. `--offline-model-data` builds with that snapshot instead of refreshing it from live provider catalogs. The script still installs dependencies, builds the monorepo, compiles the Bun executable, and stages its runtime assets. Package maintainers who provide dependencies separately can pass `--skip-install --skip-deps`.
+构建后启动：
 
-## Supply-chain hardening
+```bash
+npm run build
+node packages/omega-core/dist/cli.js
+```
 
-We treat npm dependency changes as reviewed code changes.
+`omega init` 会创建 `.omega/agent` 和 `.omega/workflows`，并生成不会覆盖已有文件的 `AGENTS.md`、`settings.json`、`permissions.json` 与 `scope.md`。使用 `--no-env` 可在调试时清除已知 Provider 和云凭据环境变量：
 
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
+```bash
+./pi-test.sh --no-env
+```
 
-## Share your OSS coding agent sessions
+## 常用命令
 
-If you use Pi or other coding agents for open source work, please share your sessions.
+```text
+/init                         初始化当前项目的 .omega 配置
+/subagent:settings            查看或修改 subagent 开关
+/subagent:status              查看 subagent 状态
+/workflows                    打开 Workflow 运行状态面板
+/workflows list               列出可用 Workflow
+/workflows run <prompt>       根据提示词生成并运行一次 Workflow
+/workflows run-template <id>  运行已注册 Workflow
+/workflows show <id>          查看 Workflow 元数据和源码
+/workflows validate <id>      校验 Workflow，不执行
+/workflows reload             重新发现 Workflow
+/goal                         管理长任务目标
+/bg、/tasks、/jobs            管理后台任务
+/logs、/kill                  查看日志或取消任务
+```
 
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
+也可以通过 `subagent` 工具运行单个 Agent，或提交 `tasks` / `chain` 执行多个 Agent。详见 [docs/subagents.md](docs/subagents.md) 和 [docs/workflows.md](docs/workflows.md)。
 
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
+## Agent 与 Workflow
 
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
+项目级 Agent 放在 `.omega/agents/**/*.md`，用户级 Agent 放在 `~/.omega/agents/**/*.md`；项目定义覆盖同名用户定义和内置定义。Agent Markdown 使用 YAML frontmatter 声明名称、工具白名单、模型和思考级别，正文作为 system prompt。
 
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
+Workflow 按内置模板、`~/.omega/workflows/**/*.js`、当前项目向上查找得到的最近 `.omega/workflows/**/*.js` 顺序加载，后加载的同名定义覆盖前者。脚本必须声明静态 `meta`，并运行在受限上下文中；文件系统、网络和命令能力应通过明确授权的 Agent 或窄化 task executor 提供。
 
-I regularly publish my own `pi-mono` work sessions here:
+## 项目结构
 
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
+```text
+packages/omega-core/   Omega 核心扩展、CLI、Agent、Workflow 和工具
+packages/coding-agent/ Pi Coding Agent CLI 与 Extension API
+packages/agent/        Agent runtime
+packages/ai/           多 Provider LLM API
+packages/tui/          终端 UI
+docs/                  Omega 使用与设计文档
+.omega/                项目本地运行数据与配置
+```
 
-## License
+核心扩展入口是 `packages/omega-core/src/entry.ts`，CLI 启动流程位于 `packages/omega-core/src/cli-runner.ts`。
+
+## 开发
+
+```bash
+npm install --ignore-scripts
+npm run check          # 格式、Lint、类型和生成文件检查
+npm run build          # 构建全部 workspace
+npm run build:offline  # 使用已有模型数据构建
+./test.sh              # 运行非 e2e 测试
+```
+
+仅运行 Omega 测试：
+
+```bash
+node node_modules/vitest/dist/cli.js --run packages/omega-core/tests
+```
+
+## 安全边界
+
+Omega 默认继承启动它的用户和进程权限，不提供操作系统级隔离。Workflow DSL 的静态解析和 VM 限制用于缩小脚本能力面，但不能替代容器或沙箱。运行不可信项目时，请先确认项目来源，并根据需要使用容器化方案。
+
+安全测试前必须配置明确的授权范围和排除项，并遵守目标系统的规则。安全问题报告流程见 [SECURITY.md](SECURITY.md)。
+
+## 相关文档
+
+- [Omega Subagents](docs/subagents.md)
+- [Omega Workflows](docs/workflows.md)
+- [Omega 架构图](docs/omega-architecture.puml)
+- [贡献指南](CONTRIBUTING.md)
+- [项目开发规则](AGENTS.md)
+- [Pi Coding Agent 文档](https://pi.dev/docs/latest)
+
+## 许可证
 
 MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>

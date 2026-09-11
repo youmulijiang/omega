@@ -35,8 +35,14 @@ import {
 	getCallFieldSchemaDescription,
 } from "./contract.ts";
 import { formatCallsSummary, writeOutputArtifact } from "./output.ts";
-import { renderCall, renderResult } from "./render.ts";
-import { mapConcurrent, type ParentModel, runAgent } from "./runner.ts";
+import { renderCall, renderResult, renderRuntimeResults } from "./render.ts";
+import {
+	mapConcurrent,
+	type ParentModel,
+	runAgent,
+	type SubagentPromptBehavior,
+	type SubagentRuntimeControl,
+} from "./runner.ts";
 import { parseInheritedCliArgs, selectInheritedPiArgv } from "./runner-cli.js";
 import {
 	SubagentAgentsWidget,
@@ -50,6 +56,7 @@ import { getSubagentSettingsPath, readSubagentSettings, writeSubagentSettings } 
 import {
 	DEFAULT_INITIAL_CONTEXT,
 	emptyUsage,
+	getFinalOutput,
 	type InitialContext,
 	isResultError,
 	type SingleResult,
@@ -65,6 +72,7 @@ const MAX_CALLS = 8;
 const MAX_CONCURRENCY = 4;
 const CALLS_HEARTBEAT_MS = 1000;
 const SUBAGENT_STATUS_KEY = "omega.subagents";
+const SUBAGENT_RESULT_MESSAGE_TYPE = "omega-subagent-runtime-result";
 const DEFAULT_MAX_DELEGATION_DEPTH = 3;
 const DEFAULT_PREVENT_CYCLE_DELEGATION = true;
 export const OMEGA_SUBAGENT_DEPTH_ENV = "OMEGA_SUBAGENT_DEPTH";
@@ -139,6 +147,21 @@ const SubagentParams = Type.Object({
 	}),
 });
 
+const SubagentMessageParams = Type.Object({
+	task: Type.String({ description: "Running subagent task ID, or a unique running agent name", minLength: 1 }),
+	message: Type.String({ description: "Message sent to the running subagent", minLength: 1 }),
+	behavior: Type.Optional(
+		StringEnum(["steer", "follow_up"] as const, {
+			description: "steer interrupts the current direction; follow_up queues another turn",
+			default: "steer",
+		}),
+	),
+});
+
+const SubagentStatusParams = Type.Object({
+	task: Type.Optional(Type.String({ description: "Optional task ID or unique agent name" })),
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -157,6 +180,7 @@ interface SessionSnapshotSource {
 }
 
 interface NormalizedCall {
+	taskId?: string;
 	index: number;
 	agent: string;
 	prompt: string;
@@ -635,6 +659,7 @@ function getCycleViolations(requestedNames: Set<string>, ancestorAgentStack: str
 
 function makePlaceholderResult(call: NormalizedCall): SingleResult {
 	return {
+		taskId: call.taskId,
 		callIndex: call.index,
 		agent: call.agent,
 		agentSource: "unknown",
@@ -655,7 +680,7 @@ function updateSubagentFooter(ctx: Pick<ExtensionContext, "ui">, results: readon
 		ctx.ui.setStatus(SUBAGENT_STATUS_KEY, undefined);
 		return;
 	}
-	const names = running.map((result) => result.agent).join(", ");
+	const names = running.map((result) => `${result.agent}${result.runtimeState === "idle" ? "(idle)" : ""}`).join(", ");
 	ctx.ui.setStatus(
 		SUBAGENT_STATUS_KEY,
 		ctx.ui.theme.fg("warning", ` subagents ${running.length} running · ${names} `),
@@ -690,8 +715,118 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	const enabled = readSubagentSettings(settingsPath).enabled;
 	const runtimeEnabled = enabled && canDelegate;
 	const activeSessionIds = new Set<string>();
+	const activeTasks = new Map<
+		string,
+		{ agent: string; controller: AbortController; control?: SubagentRuntimeControl }
+	>();
 	const outputArtifactDirs = new Set<string>();
+	const runtimeResults = new Map<string, SingleResult>();
+	const deliveredSettlements = new Map<string, string>();
+	const pendingSettlements = new Map<
+		string,
+		{ settlementKey: string; taskId: string; agent: string; output: string }
+	>();
 	let latestRuntimeResults: readonly SingleResult[] = [];
+	let nextTaskId = 1;
+	let runtimeViewDepth = 0;
+	let selectedRuntimeTaskId: string | undefined;
+
+	const selectRuntimeTask = (taskId: string | undefined): void => {
+		selectedRuntimeTaskId = taskId;
+		for (const [activeTaskId, task] of activeTasks) {
+			task.control?.setKeepAlive(activeTaskId === taskId);
+		}
+	};
+
+	omega.registerMessageRenderer<{
+		kind: "omega-subagent-runtime-result";
+		settlements: Array<{ taskId: string; agent: string; output: string }>;
+	}>(SUBAGENT_RESULT_MESSAGE_TYPE, (message, _renderOptions, theme) =>
+		renderRuntimeResults(
+			message.details?.settlements ?? [{ taskId: "subagent", agent: "unknown", output: "Result unavailable." }],
+			theme,
+		),
+	);
+
+	const publishRuntimeResults = (results: readonly SingleResult[]): readonly SingleResult[] => {
+		for (const result of results) {
+			if (result.taskId) runtimeResults.set(result.taskId, result);
+		}
+		latestRuntimeResults = [...runtimeResults.values()];
+		return latestRuntimeResults;
+	};
+
+	const flushPendingSettlements = (): void => {
+		if (pendingSettlements.size === 0) return;
+		const settlements = [...pendingSettlements.values()];
+		pendingSettlements.clear();
+		for (const settlement of settlements) {
+			deliveredSettlements.set(settlement.taskId, settlement.settlementKey);
+		}
+		omega.sendMessage(
+			{
+				customType: SUBAGENT_RESULT_MESSAGE_TYPE,
+				content: settlements
+					.flatMap((settlement) => [
+						`Subagent task ${settlement.taskId} (${settlement.agent}) completed a turn.`,
+						"Answer:",
+						settlement.output,
+					])
+					.concat("Synthesize these newly completed subagent results and continue the parent task.")
+					.join("\n\n"),
+				display: true,
+				details: { kind: "omega-subagent-runtime-result", settlements },
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+	};
+
+	const queueSettledRuntimeResults = (results: readonly SingleResult[]): void => {
+		for (const result of results) {
+			if (!result.taskId || result.runtimeState !== "idle") continue;
+			const output = getFinalOutput(result.messages).trim();
+			if (!output) continue;
+			const settlementKey = createHash("sha256")
+				.update(`${result.messages.length}\0${result.runtimePrompts?.length ?? 0}\0${output}`)
+				.digest("hex");
+			if (deliveredSettlements.get(result.taskId) === settlementKey) continue;
+			const pendingKey = `${result.taskId}:${settlementKey}`;
+			if (!pendingSettlements.has(pendingKey)) {
+				pendingSettlements.set(pendingKey, {
+					settlementKey,
+					taskId: result.taskId,
+					agent: result.agent,
+					output,
+				});
+			}
+		}
+		if (runtimeViewDepth === 0) flushPendingSettlements();
+	};
+
+	const sendTaskMessage = (
+		identifier: string,
+		message: string,
+		behavior: SubagentPromptBehavior,
+	): { ok: boolean; message: string } => {
+		let resolvedTaskId = identifier;
+		let task = activeTasks.get(resolvedTaskId);
+		if (!task) {
+			const matches = [...activeTasks.entries()].filter(([, item]) => item.agent === identifier);
+			if (matches.length > 1) {
+				return {
+					ok: false,
+					message: `Agent ${identifier} 有多个运行中任务，请指定任务 ID：${matches.map(([id]) => id).join(", ")}`,
+				};
+			}
+			if (matches.length === 1) [resolvedTaskId, task] = matches[0];
+		}
+		if (!task) return { ok: false, message: `未找到运行中的 subagent 任务 ${identifier}。` };
+		if (!task.control) return { ok: false, message: `${resolvedTaskId} 的 RPC 通道尚未就绪。` };
+		if (!task.control.sendPrompt(message, behavior)) {
+			return { ok: false, message: `${resolvedTaskId} 的 RPC 通道已经关闭。` };
+		}
+		return { ok: true, message: `已向 ${resolvedTaskId} (${task.agent}) 发送消息。` };
+	};
 
 	omega.registerShortcut("shift+down", {
 		description: "选择并查看 subagent 实时会话",
@@ -700,26 +835,41 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 				ctx.ui.notify("当前没有可查看的 subagent 运行记录。", "info");
 				return;
 			}
-			await ctx.ui.custom<void>(
-				(tui, theme, keybindings, done) =>
-					new SubagentConversationView(
-						() => latestRuntimeResults,
-						tui,
-						theme,
-						keybindings,
-						() => done(),
-					),
-				{
-					overlay: true,
-					overlayOptions: {
-						anchor: "center",
-						width: "94%",
-						minWidth: 72,
-						maxHeight: "82%",
-						margin: 1,
+			runtimeViewDepth++;
+			try {
+				await ctx.ui.custom<void>(
+					(tui, theme, keybindings, done) =>
+						new SubagentConversationView(
+							() => latestRuntimeResults,
+							tui,
+							theme,
+							keybindings,
+							() => {
+								selectRuntimeTask(undefined);
+								done();
+							},
+							0,
+							(index) => selectRuntimeTask(latestRuntimeResults[index]?.taskId),
+							(taskId, prompt) => {
+								const sent = sendTaskMessage(taskId, prompt, "follow_up");
+								if (!sent.ok) ctx.ui.notify(sent.message, "warning");
+							},
+						),
+					{
+						overlay: true,
+						overlayOptions: {
+							anchor: "center",
+							width: "94%",
+							minWidth: 72,
+							maxHeight: "82%",
+							margin: 1,
+						},
 					},
-				},
-			);
+				);
+			} finally {
+				runtimeViewDepth = Math.max(0, runtimeViewDepth - 1);
+				flushPendingSettlements();
+			}
 		},
 	});
 
@@ -735,6 +885,11 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	};
 
 	omega.on("session_shutdown", (_event, ctx) => {
+		selectedRuntimeTaskId = undefined;
+		for (const task of activeTasks.values()) task.controller.abort();
+		activeTasks.clear();
+		pendingSettlements.clear();
+		runtimeViewDepth = 0;
 		updateSubagentFooter(ctx, undefined);
 		for (const dir of outputArtifactDirs) {
 			try {
@@ -770,6 +925,8 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 		handler: async (_args, ctx) => {
 			const discovery = discoverAgents(ctx.cwd, "both", shouldIncludeProjectAgents(ctx.cwd, ctx.isProjectTrusted()));
 			const agents = discovery.agents.map((agent) => `${agent.name} [${agent.source}]`).join(", ") || "无";
+			const runningTasks =
+				[...activeTasks.entries()].map(([id, task]) => `${id} (${task.agent})`).join(", ") || "无";
 			ctx.ui.notify(
 				[
 					`Subagents: ${enabled ? "已启用" : "已禁用"}`,
@@ -777,10 +934,70 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 					`委派深度: ${currentDepth}/${maxDepth}`,
 					`循环防护: ${preventCycles ? "已启用" : "已禁用"}`,
 					`可用 Agent (${discovery.agents.length}): ${agents}`,
+					`运行中任务 (${activeTasks.size}): ${runningTasks}`,
 					`设置文件: ${settingsPath}`,
 				].join("\n"),
 				"info",
 			);
+		},
+	});
+
+	registerOmegaCommand(omega, "subagents:kill", {
+		description: "终止一个或全部正在运行的 Omega 子代理任务",
+		handler: async (args, ctx) => {
+			const taskId = args.trim();
+			if (!taskId) {
+				const tasks = [...activeTasks.values()];
+				for (const task of tasks) task.controller.abort();
+				ctx.ui.notify(
+					tasks.length > 0
+						? `已请求终止全部 ${tasks.length} 个 subagent 任务。`
+						: "当前没有运行中的 subagent 任务。",
+					"info",
+				);
+				return;
+			}
+
+			let resolvedTaskId = taskId;
+			let task = activeTasks.get(resolvedTaskId);
+			if (!task) {
+				const matches = [...activeTasks.entries()].filter(([, item]) => item.agent === taskId);
+				if (matches.length === 1) {
+					[resolvedTaskId, task] = matches[0];
+				} else if (matches.length > 1) {
+					ctx.ui.notify(
+						`Agent ${taskId} 有多个运行中任务，请指定任务 ID：${matches.map(([id]) => id).join(", ")}`,
+						"warning",
+					);
+					return;
+				}
+			}
+			if (!task) {
+				const available = [...activeTasks.entries()].map(([id, item]) => `${id} (${item.agent})`).join(", ");
+				ctx.ui.notify(
+					available
+						? `未找到任务 ${taskId}。运行中的任务：${available}`
+						: `未找到任务 ${taskId}，当前没有运行中的 subagent 任务。`,
+					"warning",
+				);
+				return;
+			}
+
+			task.controller.abort();
+			ctx.ui.notify(`已请求终止 ${resolvedTaskId} (${task.agent})。`, "info");
+		},
+	});
+
+	registerOmegaCommand(omega, "subagents:send", {
+		description: "向正在运行的 Omega 子代理发送协调消息",
+		handler: async (args, ctx) => {
+			const separator = args.search(/\s/u);
+			if (separator < 1 || !args.slice(separator).trim()) {
+				ctx.ui.notify("用法：/subagents:send <任务ID或唯一Agent名> <消息>", "warning");
+				return;
+			}
+			const sent = sendTaskMessage(args.slice(0, separator), args.slice(separator).trim(), "steer");
+			ctx.ui.notify(sent.message, sent.ok ? "info" : "warning");
 		},
 	});
 
@@ -858,14 +1075,76 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	// Register the subagent tool.
 	if (runtimeEnabled) {
 		omega.registerTool({
+			name: "subagent_status",
+			label: "Subagent Status",
+			description: "Read current state and latest responses from background subagent tasks.",
+			parameters: SubagentStatusParams,
+			async execute(_toolCallId, params) {
+				const identifier = params.task?.trim();
+				let results = [...runtimeResults.values()];
+				if (identifier) {
+					const byId = runtimeResults.get(identifier);
+					results = byId ? [byId] : results.filter((result) => result.agent === identifier);
+				}
+				if (results.length === 0) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: identifier ? `未找到 subagent 任务 ${identifier}。` : "没有 subagent 运行记录。",
+							},
+						],
+						details: { results: [] },
+						isError: Boolean(identifier),
+					};
+				}
+				const text = results
+					.map((result) => {
+						const state =
+							result.exitCode === -1
+								? (result.runtimeState ?? "running")
+								: isResultError(result)
+									? "failed"
+									: "done";
+						const output =
+							getFinalOutput(result.messages) ||
+							result.liveContent
+								?.filter((part) => part.type === "text")
+								.map((part) => part.text)
+								.join("") ||
+							"(暂无回答)";
+						return `${result.taskId ?? "unknown"} (${result.agent}) [${state}]\n${output}`;
+					})
+					.join("\n\n");
+				return { content: [{ type: "text" as const, text }], details: { results }, isError: false };
+			},
+		});
+
+		omega.registerTool({
+			name: "subagent_message",
+			label: "Message Subagent",
+			description: "Send a steering or follow-up message to a running background subagent task.",
+			parameters: SubagentMessageParams,
+			async execute(_toolCallId, params) {
+				const sent = sendTaskMessage(params.task.trim(), params.message, params.behavior ?? "steer");
+				return {
+					content: [{ type: "text" as const, text: sent.message }],
+					details: { ok: sent.ok, task: params.task },
+					isError: !sent.ok,
+				};
+			},
+		});
+
+		omega.registerTool({
 			name: "subagent",
 			label: "Subagent",
 			description: formatSubagentToolDescription(),
 			parameters: SubagentParams,
 
-			async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 				let agentsWidget: SubagentAgentsWidget | undefined;
 				let fleetWidget: SubagentFleetWidget | undefined;
+				let fleetEditor: SubagentFleetEditor | undefined;
 				let installedFleetEditor = false;
 				let runtimeViewerOpen = false;
 				let executionFinished = false;
@@ -948,6 +1227,7 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 
 				const reservedSessionIds = calls.map((call) => call.session?.id).filter((id): id is string => Boolean(id));
 				for (const id of reservedSessionIds) activeSessionIds.add(id);
+				let backgroundStarted = false;
 
 				try {
 					try {
@@ -1009,11 +1289,14 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 					const restoreFleetEditor = () => {
 						if (!installedFleetEditor) return;
 						installedFleetEditor = false;
+						fleetEditor?.focusMain();
+						fleetEditor = undefined;
 						ctx.ui.setEditorComponent(undefined);
 					};
 					const openRuntimeViewer = (initialSelection: number) => {
 						if (runtimeViewerOpen) return;
 						runtimeViewerOpen = true;
+						runtimeViewDepth++;
 						void ctx.ui
 							.custom<void>(
 								(tui, theme, keybindings, done) =>
@@ -1022,11 +1305,19 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 										tui,
 										theme,
 										keybindings,
-										() => done(),
+										() => {
+											selectRuntimeTask(undefined);
+											done();
+										},
 										initialSelection,
 										(index) => {
+											selectRuntimeTask(latestRuntimeResults[index]?.taskId);
 											agentsWidget?.setSelection(index);
 											fleetWidget?.setSelection(index);
+										},
+										(taskId, prompt) => {
+											const sent = sendTaskMessage(taskId, prompt, "follow_up");
+											if (!sent.ok) ctx.ui.notify(sent.message, "warning");
 										},
 									),
 								{
@@ -1043,54 +1334,93 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 							.catch((error) => ctx.ui.notify(`打开 subagent 运行视图失败：${String(error)}`, "error"))
 							.finally(() => {
 								runtimeViewerOpen = false;
+								runtimeViewDepth = Math.max(0, runtimeViewDepth - 1);
+								fleetEditor?.focusMain();
+								flushPendingSettlements();
 								if (executionFinished) restoreFleetEditor();
 							});
 					};
 					if (!ctx.ui.getEditorComponent()) {
-						ctx.ui.setEditorComponent(
-							(tui, theme, keybindings) =>
-								new SubagentFleetEditor(
-									tui,
-									theme,
-									keybindings,
-									() => latestRuntimeResults,
-									() => fleetWidget,
-									activateFleetWidget,
-									deactivateFleetWidget,
-									openRuntimeViewer,
-								),
-						);
+						ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+							fleetEditor = new SubagentFleetEditor(
+								tui,
+								theme,
+								keybindings,
+								() => latestRuntimeResults,
+								() => fleetWidget,
+								activateFleetWidget,
+								deactivateFleetWidget,
+								openRuntimeViewer,
+								(selected) => {
+									if (selected !== undefined) {
+										selectRuntimeTask(latestRuntimeResults[selected]?.taskId);
+										runtimeViewDepth++;
+										return;
+									}
+									selectRuntimeTask(undefined);
+									runtimeViewDepth = Math.max(0, runtimeViewDepth - 1);
+									flushPendingSettlements();
+								},
+							);
+							return fleetEditor;
+						});
 						installedFleetEditor = true;
 					}
 					const updateRuntime = (partial: AgentToolResult<SubagentDetails>) => {
-						latestRuntimeResults = partial.details.results;
-						agentsWidget?.setResults(partial.details.results);
-						fleetWidget?.setResults(partial.details.results);
-						updateSubagentFooter(ctx, partial.details.results);
+						const currentResults = publishRuntimeResults(partial.details.results);
+						queueSettledRuntimeResults(partial.details.results);
+						agentsWidget?.setResults(currentResults);
+						fleetWidget?.setResults(currentResults);
+						updateSubagentFooter(ctx, currentResults);
 						onUpdate?.(partial);
 					};
-					try {
-						return await executeCalls(
-							calls,
-							parentSessionSnapshotJsonl,
-							persistentSessionDir,
-							parentModel,
-							agents,
-							ctx.cwd,
-							signal,
-							updateRuntime,
-							makeDetails,
-						);
-					} finally {
+					const cleanupRuntime = () => {
 						executionFinished = true;
 						updateSubagentFooter(ctx, undefined);
 						ctx.ui.setWidget("omega.subagents.agents", undefined);
 						deactivateFleetWidget();
 						if (!runtimeViewerOpen) restoreFleetEditor();
-					}
+					};
+					backgroundStarted = true;
+					const backgroundExecution = executeCalls(
+						calls,
+						parentSessionSnapshotJsonl,
+						persistentSessionDir,
+						parentModel,
+						agents,
+						ctx.cwd,
+						undefined,
+						updateRuntime,
+						makeDetails,
+					);
+					void backgroundExecution
+						.then((result) => {
+							publishRuntimeResults(result.details.results);
+							ctx.ui.notify("Subagent 后台运行已结束。", result.details.failed ? "warning" : "info");
+						})
+						.catch((error) => ctx.ui.notify(`Subagent 后台运行失败：${String(error)}`, "error"))
+						.finally(() => {
+							cleanupRuntime();
+							for (const id of reservedSessionIds) activeSessionIds.delete(id);
+							releaseSessionLocks(lockResult.locks);
+						});
+
+					const launched = calls.map(makePlaceholderResult);
+					publishRuntimeResults(launched);
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `已在后台启动 ${launched.length} 个 subagent 任务：${launched.map((result) => `${result.taskId} (${result.agent})`).join(", ")}。主 Agent 可继续处理其他任务，并可使用 subagent_message 协调。`,
+							},
+						],
+						details: makeDetails(launched),
+					};
 				} finally {
-					for (const id of reservedSessionIds) activeSessionIds.delete(id);
-					releaseSessionLocks(lockResult.locks);
+					if (!backgroundStarted) {
+						for (const id of reservedSessionIds) activeSessionIds.delete(id);
+						releaseSessionLocks(lockResult.locks);
+					}
 				}
 			},
 
@@ -1114,6 +1444,18 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 		onUpdate: ((partial: AgentToolResult<SubagentDetails>) => void) | undefined,
 		makeDetails: ReturnType<typeof makeDetailsFactory>,
 	) {
+		const taskControllers = calls.map((call) => {
+			const taskId = `subagent-${nextTaskId++}`;
+			const controller = new AbortController();
+			call.taskId = taskId;
+			activeTasks.set(taskId, { agent: call.agent, controller });
+			return { taskId, controller };
+		});
+		const abortAllTasks = () => {
+			for (const task of taskControllers) task.controller.abort();
+		};
+		if (signal?.aborted) abortAllTasks();
+		else signal?.addEventListener("abort", abortAllTasks, { once: true });
 		const allResults: SingleResult[] = calls.map(makePlaceholderResult);
 
 		const emitProgress = () => {
@@ -1146,9 +1488,11 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 		let results: SingleResult[];
 		try {
 			results = await mapConcurrent(calls, MAX_CONCURRENCY, async (call, workerIndex) => {
+				const taskController = taskControllers[workerIndex];
 				let result: SingleResult;
 				try {
 					result = await runAgent({
+						taskId: taskController.taskId,
 						cwd: defaultCwd,
 						agents,
 						callIndex: call.index,
@@ -1167,7 +1511,15 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 						preventCycles,
 						inactivityTimeoutMs: call.inactivityTimeoutMs,
 						timeoutMs: call.timeoutMs,
-						signal,
+						signal: taskController.controller.signal,
+						keepAlive: true,
+						onControlReady: (control) => {
+							const activeTask = activeTasks.get(taskController.taskId);
+							if (activeTask) {
+								activeTask.control = control;
+								control.setKeepAlive(selectedRuntimeTaskId === taskController.taskId);
+							}
+						},
 						onUpdate: (partial) => {
 							if (partial.details?.results[0]) {
 								allResults[workerIndex] = partial.details.results[0];
@@ -1193,6 +1545,8 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 			});
 		} finally {
 			if (heartbeat) clearInterval(heartbeat);
+			signal?.removeEventListener("abort", abortAllTasks);
+			for (const task of taskControllers) activeTasks.delete(task.taskId);
 		}
 
 		const hasErrors = results.some((r) => isResultError(r));

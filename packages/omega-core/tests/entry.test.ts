@@ -51,10 +51,12 @@ describe("omegaExtension", () => {
 				"memory_restore",
 				"memory_search",
 				"memory_status",
+				"todo",
 			]),
 		);
 		expect(commands).toContain("btw");
 		expect(commands).toContain("study");
 		expect(commands).toContain("study:list");
+		expect(commands).toContain("todos");
 	});
 });

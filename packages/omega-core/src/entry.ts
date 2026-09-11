@@ -13,6 +13,7 @@ import { registerPermissions } from "./permissions/index.ts";
 import { registerPrompts } from "./prompts/index.ts";
 import { registerStudy } from "./study/index.ts";
 import { registerSubagents } from "./subagents/index.ts";
+import { registerTodo } from "./todo/index.ts";
 import { registerTools } from "./tools/index.ts";
 import { registerUi } from "./ui/index.ts";
 import { registerWorkflows } from "./workflows/index.ts";
@@ -28,6 +29,7 @@ export default function omegaExtension(pi: ExtensionAPI): void {
 	registerChrome(omega);
 	registerBackground(omega);
 	registerBtw(omega);
+	registerTodo(omega);
 	registerCommands(omega);
 	registerFork(omega);
 	registerGoal(omega);

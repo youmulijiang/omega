@@ -11,6 +11,8 @@ import {
 import { evaluateBuiltInDeny, evaluateBulkDeletion } from "./rules/index.ts";
 import { extractTargetsFromInput, loadScope, type ScopeDefinition, scopeContainsTarget } from "./scope.ts";
 
+const PERMISSION_LEVELS = ["ask for approval", "approve for me", "full access"] as const;
+
 export function registerPermissions(omega: OmegaAPI): void {
 	let scope: ScopeDefinition | undefined;
 	let permissionPolicy: PermissionPolicy | undefined;
@@ -47,11 +49,17 @@ export function registerPermissions(omega: OmegaAPI): void {
 
 	registerOmegaCommand(omega, "permissions", {
 		description: "查看或设置权限等级：ask for approval | approve for me | full access",
+		getArgumentCompletions: (prefix) => {
+			const normalizedPrefix = prefix.trimStart().toLowerCase();
+			const matches = PERMISSION_LEVELS.filter((level) => level.startsWith(normalizedPrefix));
+			return matches.length > 0 ? matches.map((level) => ({ value: level, label: level })) : null;
+		},
 		handler: async (args, ctx) => {
-			const requested = args.trim().toLowerCase();
+			let requested = args.trim().toLowerCase();
 			if (!requested) {
-				ctx.ui.notify(`当前权限等级：${permissionLevel}`, "info");
-				return;
+				const selected = await ctx.ui.select(`选择权限等级（当前：${permissionLevel}）`, [...PERMISSION_LEVELS]);
+				if (!selected) return;
+				requested = selected;
 			}
 			if (requested !== "ask for approval" && requested !== "approve for me" && requested !== "full access") {
 				ctx.ui.notify("无效权限等级。可用值：ask for approval、approve for me、full access", "error");

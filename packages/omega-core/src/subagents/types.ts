@@ -34,6 +34,7 @@ export interface UsageStats {
 
 /** Result of a single subagent call. */
 export interface SingleResult {
+	taskId?: string;
 	callIndex?: number;
 	agent: string;
 	agentSource: "builtin" | "user" | "project" | "unknown";
@@ -42,6 +43,16 @@ export interface SingleResult {
 	session?: SubagentSessionDetails;
 	exitCode: number;
 	messages: Message[];
+	/** Follow-up prompts submitted through the runtime, positioned against captured child messages. */
+	runtimePrompts?: Array<{ text: string; afterMessageCount: number }>;
+	/** In-progress assistant content assembled from child RPC streaming deltas. */
+	liveContent?: Array<
+		| { type: "text"; text: string }
+		| { type: "thinking"; thinking: string; thinkingSignature?: string }
+		| { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
+	>;
+	/** Long-lived runtime state; idle runtimes remain available for follow-up prompts. */
+	runtimeState?: "running" | "idle";
 	/** Validated arguments captured from a terminating structured_output tool call. */
 	structuredOutput?: unknown;
 	stderr: string;

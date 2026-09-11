@@ -17,6 +17,14 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../api.ts";
 import { registerOmegaCommand } from "../commands/register.ts";
+import {
+	applyTodoCompletionToPlan,
+	onTodoReplacement,
+	replaceTodosFromPlan,
+	resolveTodoTaskSwitch,
+	syncTodosWithPlan,
+	todoContinuationPrompt,
+} from "../todo/index.ts";
 import { extractPlanSteps } from "./planner.ts";
 import { getCompletionStats, markCompletedSteps } from "./progress.ts";
 import { checkCommand } from "./safety.ts";
@@ -51,12 +59,8 @@ export function registerPlanMode(omega: OmegaAPI): void {
 		if (planMode === "execute" && steps.length > 0) {
 			const { completed, total } = getCompletionStats(steps);
 			ctx.ui.setStatus("omega-plan", ctx.ui.theme.fg("accent", `📋 ${completed}/${total}`));
-			const lines = steps.map((item) =>
-				item.completed
-					? ctx.ui.theme.fg("success", "☑ ") + ctx.ui.theme.fg("muted", ctx.ui.theme.strikethrough(item.text))
-					: `${ctx.ui.theme.fg("muted", "☐ ")}${item.text}`,
-			);
-			ctx.ui.setWidget("omega-plan-todos", lines);
+			// The todo module owns the execution list so manual updates and plan progress share one panel.
+			ctx.ui.setWidget("omega-plan-todos", undefined);
 		} else if (planMode === "plan") {
 			ctx.ui.setStatus("omega-plan", ctx.ui.theme.fg("warning", "⏸ plan"));
 			ctx.ui.setWidget("omega-plan-todos", undefined);
@@ -94,6 +98,14 @@ export function registerPlanMode(omega: OmegaAPI): void {
 		omega.sendUserMessage(prompt);
 	}
 
+	onTodoReplacement(omega, (ctx) => {
+		planMode = "normal";
+		steps = [];
+		restoreTools();
+		persistState();
+		updateUI(ctx);
+	});
+
 	// --- CLI flag ---
 
 	omega.registerFlag("plan", {
@@ -109,6 +121,12 @@ export function registerPlanMode(omega: OmegaAPI): void {
 		handler: async (args, ctx) => {
 			const prompt = args.trim();
 			if (prompt) {
+				const decision = await resolveTodoTaskSwitch(omega, ctx);
+				if (decision.kind === "continue_current") {
+					omega.sendUserMessage(todoContinuationPrompt(decision.subject));
+					return;
+				}
+				if (decision.kind === "cancel") return;
 				startPlanTask(prompt, ctx);
 				return;
 			}
@@ -225,7 +243,8 @@ Remaining steps:
 ${todoList}
 
 Execute each step in order.
-After completing a step, include a [DONE:n] tag in your response.`,
+Before starting a step, use the todo tool to mark it in_progress.
+After verification, use the todo tool to mark it completed. The legacy [DONE:n] response tag is also supported.`,
 					display: false,
 				},
 			};
@@ -236,15 +255,25 @@ After completing a step, include a [DONE:n] tag in your response.`,
 
 	omega.on("turn_end", async (event, ctx) => {
 		if (planMode !== "execute" || steps.length === 0) return;
+		const toolCompleted = applyTodoCompletionToPlan(ctx, steps);
 		const msg = event.message;
-		if (msg.role !== "assistant" || !Array.isArray(msg.content)) return;
+		if (msg.role !== "assistant" || !Array.isArray(msg.content)) {
+			syncTodosWithPlan(omega, ctx, steps, true);
+			if (toolCompleted > 0) {
+				updateUI(ctx);
+				persistState();
+			}
+			return;
+		}
 
 		const text = (msg.content as Array<{ type: string; text?: string }>)
 			.filter((c): c is { type: "text"; text: string } => c.type === "text")
 			.map((c) => c.text)
 			.join("\n");
 
-		if (markCompletedSteps(text, steps) > 0) {
+		const markerCompleted = markCompletedSteps(text, steps);
+		syncTodosWithPlan(omega, ctx, steps, true);
+		if (markerCompleted + toolCompleted > 0) {
 			updateUI(ctx);
 			persistState();
 		}
@@ -293,6 +322,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 			const extracted = extractPlanSteps(text);
 			if (extracted.length > 0) {
 				steps = extracted;
+				replaceTodosFromPlan(omega, ctx, steps);
 				persistState();
 			}
 		}
@@ -319,6 +349,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 		if (choice?.startsWith("Execute")) {
 			planMode = steps.length > 0 ? "execute" : "normal";
 			restoreTools();
+			if (steps.length > 0) syncTodosWithPlan(omega, ctx, steps, true);
 			persistState();
 			updateUI(ctx);
 

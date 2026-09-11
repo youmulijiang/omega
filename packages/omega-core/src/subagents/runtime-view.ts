@@ -1,7 +1,18 @@
-import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+	AssistantMessageComponent,
+	CustomEditor,
+	getMarkdownTheme,
+	getSelectListTheme,
+	type KeybindingsManager,
+	type Theme,
+	UserMessageComponent,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
+	Container,
 	type EditorTheme,
+	Markdown,
+	Text,
 	type TUI,
 	truncateToWidth,
 	visibleWidth,
@@ -70,6 +81,7 @@ abstract class LiveSubagentComponent implements Component {
 	}
 
 	protected icon(result: SingleResult): string {
+		if (result.exitCode === -1 && result.runtimeState === "idle") return this.theme.fg("accent", "○");
 		if (result.exitCode === -1) return this.theme.fg("accent", SPINNER_FRAMES[this.frame] ?? "⠋");
 		if (isResultError(result)) return this.theme.fg("error", "✗");
 		return this.theme.fg("success", "✓");
@@ -106,7 +118,11 @@ export class SubagentAgentsWidget extends LiveSubagentComponent {
 			const active = index === this.selected;
 			const selection = this.theme.fg(active ? "accent" : "dim", active ? "●" : "○");
 			const prompt = truncateToWidth(oneLine(result.prompt) || "working", Math.max(8, width - 34));
-			const status = isResultSuccess(result) ? "done" : result.exitCode === -1 ? "working" : "failed";
+			const status = isResultSuccess(result)
+				? "done"
+				: result.exitCode === -1
+					? (result.runtimeState ?? "working")
+					: "failed";
 			const agent = active ? this.theme.fg("accent", this.theme.bold(result.agent)) : this.theme.bold(result.agent);
 			const label = `${branch} ${selection} ${this.icon(result)} ${agent}  ${prompt}`;
 			lines.push(
@@ -150,6 +166,7 @@ export class SubagentFleetEditor extends CustomEditor {
 	private readonly activateFleet: () => SubagentFleetWidget | undefined;
 	private readonly deactivateFleet: () => void;
 	private readonly openSelected: (index: number) => void;
+	private readonly onFocusChange?: (selected: number | undefined) => void;
 	private selected?: number;
 
 	constructor(
@@ -161,6 +178,7 @@ export class SubagentFleetEditor extends CustomEditor {
 		activateFleet: () => SubagentFleetWidget | undefined,
 		deactivateFleet: () => void,
 		openSelected: (index: number) => void,
+		onFocusChange?: (selected: number | undefined) => void,
 	) {
 		super(tui, theme, keybindings);
 		this.fleetKeybindings = keybindings;
@@ -169,6 +187,18 @@ export class SubagentFleetEditor extends CustomEditor {
 		this.activateFleet = activateFleet;
 		this.deactivateFleet = deactivateFleet;
 		this.openSelected = openSelected;
+		this.onFocusChange = onFocusChange;
+	}
+
+	private updateSelection(selected: number | undefined): void {
+		const focusChanged = (this.selected === undefined) !== (selected === undefined);
+		this.selected = selected;
+		if (focusChanged) this.onFocusChange?.(selected);
+	}
+
+	focusMain(): void {
+		this.updateSelection(undefined);
+		this.deactivateFleet();
 	}
 
 	override handleInput(data: string): void {
@@ -176,13 +206,13 @@ export class SubagentFleetEditor extends CustomEditor {
 		if (this.getText().length === 0 && results.length > 0) {
 			if (this.fleetKeybindings.matches(data, "tui.input.tab")) {
 				const target = this.selected ?? 0;
-				this.selected = target;
+				this.updateSelection(target);
 				this.getFleet()?.setSelection(target);
 				this.openSelected(target);
 				return;
 			}
 			if (this.fleetKeybindings.matches(data, "tui.select.down")) {
-				this.selected = this.selected === undefined ? 0 : (this.selected + 1) % results.length;
+				this.updateSelection(this.selected === undefined ? 0 : (this.selected + 1) % results.length);
 				const fleet = this.getFleet() ?? this.activateFleet();
 				fleet?.setResults(results);
 				fleet?.setSelection(this.selected);
@@ -190,10 +220,9 @@ export class SubagentFleetEditor extends CustomEditor {
 			}
 			if (this.selected !== undefined && this.fleetKeybindings.matches(data, "tui.select.up")) {
 				if (this.selected === 0) {
-					this.selected = undefined;
-					this.deactivateFleet();
+					this.focusMain();
 				} else {
-					this.selected--;
+					this.updateSelection(this.selected - 1);
 					this.getFleet()?.setSelection(this.selected);
 				}
 				return;
@@ -203,8 +232,7 @@ export class SubagentFleetEditor extends CustomEditor {
 				return;
 			}
 			if (this.selected !== undefined && this.fleetKeybindings.matches(data, "tui.select.cancel")) {
-				this.selected = undefined;
-				this.deactivateFleet();
+				this.focusMain();
 				return;
 			}
 		}
@@ -244,6 +272,56 @@ function thinkingLines(result: SingleResult): string[] {
 	return lines;
 }
 
+function messageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter(
+			(part): part is { type: "text"; text: string } =>
+				typeof part === "object" &&
+				part !== null &&
+				Reflect.get(part, "type") === "text" &&
+				typeof Reflect.get(part, "text") === "string",
+		)
+		.map((part) => part.text)
+		.join("");
+}
+
+function mainConversationLines(result: SingleResult, width: number, thinkingExpanded: boolean): string[] {
+	const conversation = new Container();
+	const markdownTheme = getMarkdownTheme();
+	conversation.addChild(new UserMessageComponent(result.prompt, markdownTheme, 0));
+	for (let index = 0; index <= result.messages.length; index++) {
+		for (const prompt of result.runtimePrompts?.filter((item) => item.afterMessageCount === index) ?? []) {
+			conversation.addChild(new UserMessageComponent(prompt.text, markdownTheme, 0));
+		}
+		const message = result.messages[index];
+		if (!message) continue;
+		if (message.role === "user") {
+			conversation.addChild(new UserMessageComponent(messageText(message.content), markdownTheme, 0));
+		} else if (message.role === "assistant") {
+			conversation.addChild(
+				new AssistantMessageComponent(message, !thinkingExpanded, markdownTheme, "Thinking…", 0),
+			);
+		} else {
+			const text = messageText(message.content);
+			if (text) conversation.addChild(new Markdown(text, 0, 0, markdownTheme));
+		}
+	}
+	if (result.liveContent && result.liveContent.length > 0) {
+		for (const part of result.liveContent) {
+			if (part.type === "text" && part.text) {
+				conversation.addChild(new Markdown(part.text, 0, 0, markdownTheme));
+			} else if (part.type === "thinking" && part.thinking) {
+				conversation.addChild(new Text(thinkingExpanded ? part.thinking : "Thinking…", 0, 0));
+			} else if (part.type === "toolCall") {
+				conversation.addChild(new Text(`→ ${part.name}`, 0, 0));
+			}
+		}
+	}
+	return conversation.render(width);
+}
+
 export class SubagentConversationView implements Component {
 	private selected = 0;
 	private scrollOffset = 0;
@@ -255,6 +333,8 @@ export class SubagentConversationView implements Component {
 	private readonly keybindings: KeybindingsManager;
 	private readonly done: () => void;
 	private readonly onSelectionChange?: (index: number) => void;
+	private readonly onSubmit?: (taskId: string, prompt: string) => void | Promise<void>;
+	private readonly editor: CustomEditor;
 	private readonly timer: NodeJS.Timeout;
 
 	constructor(
@@ -265,6 +345,7 @@ export class SubagentConversationView implements Component {
 		done: () => void,
 		initialSelection = 0,
 		onSelectionChange?: (index: number) => void,
+		onSubmit?: (taskId: string, prompt: string) => void | Promise<void>,
 	) {
 		this.getResults = getResults;
 		this.tui = tui;
@@ -273,6 +354,21 @@ export class SubagentConversationView implements Component {
 		this.done = done;
 		this.selected = initialSelection;
 		this.onSelectionChange = onSelectionChange;
+		this.onSubmit = onSubmit;
+		this.editor = new CustomEditor(
+			tui,
+			{ borderColor: (text) => theme.fg("border", text), selectList: getSelectListTheme() },
+			keybindings,
+			{ paddingX: 1 },
+		);
+		this.editor.onSubmit = (text) => {
+			const prompt = text.trim();
+			const result = this.getResults()[this.selected];
+			if (!prompt || !result?.taskId || !this.onSubmit) return;
+			this.editor.addToHistory(prompt);
+			this.editor.setText("");
+			void Promise.resolve(this.onSubmit(result.taskId, prompt)).catch(() => undefined);
+		};
 		this.onSelectionChange?.(this.selected);
 		this.timer = setInterval(() => {
 			this.frame = (this.frame + 1) % SPINNER_FRAMES.length;
@@ -288,7 +384,14 @@ export class SubagentConversationView implements Component {
 		const result = results[this.selected];
 		if (!result) return [this.theme.fg("muted", "No subagent runtime is available.")];
 		const innerWidth = safeWidth - 4;
-		const state = result.exitCode === -1 ? SPINNER_FRAMES[this.frame] : isResultError(result) ? "✗" : "✓";
+		const state =
+			result.exitCode === -1
+				? result.runtimeState === "idle"
+					? "○"
+					: SPINNER_FRAMES[this.frame]
+				: isResultError(result)
+					? "✗"
+					: "✓";
 		const tokens = result.usage.input + result.usage.output + result.usage.cacheWrite;
 		const header = `${state} ${this.theme.bold(result.agent)}  ${oneLine(result.prompt)} · ${formatTokens(tokens)} token`;
 		const thoughts = thinkingLines(result);
@@ -302,14 +405,18 @@ export class SubagentConversationView implements Component {
 			conversation.push("");
 		}
 		conversation.push("[Assistant]", ...assistantLines(result));
-		const allConversation = conversation.flatMap((line) => wrapTextWithAnsi(line, innerWidth));
+		const mainLines = mainConversationLines(result, innerWidth, this.thinkingExpanded);
+		const allConversation =
+			mainLines.length > 0 ? mainLines : conversation.flatMap((line) => wrapTextWithAnsi(line, innerWidth));
 		const overlayRows = Math.max(1, Math.floor((this.tui.terminal?.rows ?? 30) * 0.82));
-		const maxBodyLines = Math.max(4, Math.min(22, overlayRows - 9));
+		const editorLines = this.onSubmit ? this.editor.render(innerWidth) : [];
+		const maxBodyLines = Math.max(4, Math.min(22, overlayRows - 10 - editorLines.length));
 		const maximumOffset = Math.max(0, allConversation.length - maxBodyLines);
 		this.scrollOffset = Math.min(this.scrollOffset, maximumOffset);
 		const body = allConversation.slice(this.scrollOffset, this.scrollOffset + maxBodyLines);
-		const currentState = result.exitCode === -1 ? "running" : isResultError(result) ? "failed" : "done";
-		const instructions = `${this.keybindings.getKeys("tui.input.tab")[0] ?? "tab"} next agent · ${this.keybindings.getKeys("tui.select.up")[0] ?? "up"}/${this.keybindings.getKeys("tui.select.down")[0] ?? "down"} scroll · ${this.keybindings.getKeys("tui.select.pageUp")[0] ?? "pgup"}/${this.keybindings.getKeys("tui.select.pageDown")[0] ?? "pgdn"} page · ${this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc"} close`;
+		const currentState =
+			result.exitCode === -1 ? (result.runtimeState ?? "running") : isResultError(result) ? "failed" : "done";
+		const instructions = `${this.keybindings.getKeys("tui.input.tab")[0] ?? "tab"} next agent · ${this.keybindings.getKeys("tui.select.up")[0] ?? "up"}/${this.keybindings.getKeys("tui.select.down")[0] ?? "down"} scroll · ${this.keybindings.getKeys("tui.select.pageUp")[0] ?? "pgup"}/${this.keybindings.getKeys("tui.select.pageDown")[0] ?? "pgdn"} page · ${this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc"} return main & summarize`;
 		const content = [
 			header,
 			this.theme.fg("dim", `Agent: ● ${(result.callIndex ?? this.selected) + 1} ${result.agent} · ${currentState}`),
@@ -318,6 +425,7 @@ export class SubagentConversationView implements Component {
 			...Array.from({ length: Math.max(0, maxBodyLines - body.length) }, () => ""),
 			this.theme.fg("border", "─".repeat(innerWidth)),
 			this.theme.fg("dim", `${allConversation.length} lines · ${instructions}`),
+			...(this.onSubmit ? [this.theme.fg("dim", "向当前 subagent 发送后续提示词："), ...editorLines] : []),
 		];
 		const title = " Agent runtime ";
 		return [
@@ -336,6 +444,11 @@ export class SubagentConversationView implements Component {
 			return;
 		}
 		if (results.length === 0) return;
+		if (this.onSubmit && this.editor.getText().length > 0) {
+			this.editor.handleInput(data);
+			this.tui.requestRender();
+			return;
+		}
 		if (this.keybindings.matches(data, "tui.input.tab")) {
 			this.selected = (this.selected + 1) % results.length;
 			this.scrollOffset = 0;
@@ -351,6 +464,8 @@ export class SubagentConversationView implements Component {
 			this.scrollOffset = Math.max(0, this.scrollOffset - 10);
 		} else if (this.keybindings.matches(data, "tui.select.pageDown")) {
 			this.scrollOffset += 10;
+		} else if (this.onSubmit) {
+			this.editor.handleInput(data);
 		}
 		this.tui.requestRender();
 	}

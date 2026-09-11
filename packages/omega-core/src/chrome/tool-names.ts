@@ -5,6 +5,7 @@ export const CORE_CHROME_DEVTOOLS_TOOL_NAMES = [
 	"chrome_devtools_evaluate",
 	"chrome_devtools_screenshot",
 	"chrome_devtools_network",
+	"chrome_devtools_extract_api",
 ] as const;
 
 export const WEBMCP_TOOL_NAMES = ["chrome_devtools_webmcp_list_tools", "chrome_devtools_webmcp_call_tool"] as const;

@@ -26,6 +26,8 @@ const SEARCH_TEXT: Record<ChromeDevToolsToolName, string> = {
 	chrome_devtools_webmcp_call_tool: "call invoke page provided website webmcp tool confirmation experimental",
 	chrome_devtools_network:
 		"capture network traffic requests responses headers body websocket packets http chrome browser proxy",
+	chrome_devtools_extract_api:
+		"extract discover webpage api endpoint paths urls javascript context methods parameters test requests",
 };
 
 export function setChromeDevtoolsSessionOwner(pi: ExtensionAPI, owner: object) {

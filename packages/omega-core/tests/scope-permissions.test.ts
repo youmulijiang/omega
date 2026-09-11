@@ -288,6 +288,46 @@ describe("scope permissions", () => {
 		expect(notify).toHaveBeenCalledWith("权限等级已切换为：approve for me", "info");
 	});
 
+	it("selects a permission level when /permissions has no arguments", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-permission-select-"));
+		temporaryDirectories.push(cwd);
+		const handlers = new Map<string, EventHandler>();
+		const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: (name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) =>
+				commands.set(name, command),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn().mockResolvedValue("ask for approval");
+		const notify = vi.fn();
+		const setStatus = vi.fn();
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify, select, setStatus },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		await commands.get("permissions")?.handler("", ctx as Parameters<CommandHandler>[1]);
+		const allCompletions = await commands.get("permissions")?.getArgumentCompletions?.("");
+		const approveCompletions = await commands.get("permissions")?.getArgumentCompletions?.("app");
+
+		expect(select).toHaveBeenCalledWith("选择权限等级（当前：full access）", [
+			"ask for approval",
+			"approve for me",
+			"full access",
+		]);
+		expect(allCompletions).toEqual([
+			{ value: "ask for approval", label: "ask for approval" },
+			{ value: "approve for me", label: "approve for me" },
+			{ value: "full access", label: "full access" },
+		]);
+		expect(approveCompletions).toEqual([{ value: "approve for me", label: "approve for me" }]);
+		expect(setStatus).toHaveBeenLastCalledWith("omega-permissions", "Permissions: ask for approval");
+		expect(notify).toHaveBeenCalledWith("权限等级已切换为：ask for approval", "info");
+	});
+
 	it("forces approval when deleting more than twenty files", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "omega-bulk-delete-"));
 		temporaryDirectories.push(cwd);

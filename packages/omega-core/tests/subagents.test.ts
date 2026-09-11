@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../src/api.ts";
 import { type AgentConfig, discoverAgents } from "../src/subagents/agents.ts";
 import { formatAvailableSubagentsPrompt, formatSubagentToolDescription } from "../src/subagents/contract.ts";
@@ -25,6 +26,8 @@ import { readSubagentSettings, writeSubagentSettings } from "../src/subagents/se
 import { emptyUsage, isResultSuccess, type SingleResult } from "../src/subagents/types.ts";
 
 const temporaryDirectories: string[] = [];
+
+beforeAll(() => initTheme("dark", false));
 
 function createTemporaryProject(): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "omega-subagents-test-"));
@@ -197,6 +200,7 @@ describe("Omega subagent integration", () => {
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
 		let opened = -1;
 		let fleetActive = false;
+		const focusTransitions: Array<number | undefined> = [];
 		const fleetEditor = new SubagentFleetEditor(
 			tui,
 			{} as never,
@@ -218,6 +222,7 @@ describe("Omega subagent integration", () => {
 			(index) => {
 				opened = index;
 			},
+			(selected) => focusTransitions.push(selected),
 		);
 		expect(fleetActive).toBe(false);
 		fleetEditor.handleInput("down");
@@ -228,8 +233,53 @@ describe("Omega subagent integration", () => {
 		opened = -1;
 		fleetEditor.handleInput("tab");
 		expect(opened).toBe(0);
+		fleetEditor.focusMain();
+		expect(focusTransitions).toEqual([0, undefined]);
+		expect(fleetActive).toBe(false);
 		agents.dispose();
 		fleet.dispose();
+		viewer.dispose();
+	});
+
+	it("submits a follow-up prompt from the runtime conversation editor", () => {
+		const result: SingleResult = {
+			taskId: "subagent-7",
+			callIndex: 0,
+			agent: "reviewer",
+			agentSource: "builtin",
+			prompt: "Initial review",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		const tui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+		} as never;
+		const keybindings = {
+			matches: (data: string, action: string) =>
+				(data === "enter" && action === "tui.input.submit") ||
+				(data === "escape" && action === "tui.select.cancel"),
+			getKeys: (action: string) => [action],
+		} as never;
+		const submitted: Array<{ taskId: string; prompt: string }> = [];
+		const viewer = new SubagentConversationView(
+			() => [result],
+			tui,
+			theme,
+			keybindings,
+			() => undefined,
+			0,
+			undefined,
+			(taskId, prompt) => submitted.push({ taskId, prompt }),
+		);
+		for (const character of "继续检查授权边界") viewer.handleInput(character);
+		expect(viewer.render(240).join("\n")).toContain("return main & summarize");
+		viewer.handleInput("\r");
+		expect(submitted).toEqual([{ taskId: "subagent-7", prompt: "继续检查授权边界" }]);
 		viewer.dispose();
 	});
 
@@ -240,6 +290,7 @@ describe("Omega subagent integration", () => {
 		const tools: string[] = [];
 		const commands: string[] = [];
 		const shortcuts: string[] = [];
+		const messageRenderers: string[] = [];
 		const omega = {
 			registerFlag: (name: string) => flags.push(name),
 			registerShortcut: (shortcut: string) => shortcuts.push(shortcut),
@@ -247,15 +298,25 @@ describe("Omega subagent integration", () => {
 			on: (name: string) => events.push(name),
 			registerTool: (tool: { name: string }) => tools.push(tool.name),
 			registerCommand: (name: string) => commands.push(name),
+			registerMessageRenderer: (name: string) => messageRenderers.push(name),
 		} as unknown as OmegaAPI;
 		registerSubagents(omega, { settingsPath: path.join(root, "subagents.json") });
 		expect(flags).toEqual(["subagent-max-depth", "subagent-prevent-cycles", "no-subagent-prevent-cycles"]);
 		expect(events).toEqual(
 			expect.arrayContaining(["session_start", "session_shutdown", "before_agent_start", "tool_result"]),
 		);
-		expect(tools).toContain("subagent");
+		expect(tools).toEqual(expect.arrayContaining(["subagent", "subagent_message", "subagent_status"]));
 		expect(shortcuts).toContain("shift+down");
-		expect(commands).toEqual(expect.arrayContaining(["subagent:list", "subagent:settings", "subagent:status"]));
+		expect(messageRenderers).toContain("omega-subagent-runtime-result");
+		expect(commands).toEqual(
+			expect.arrayContaining([
+				"subagent:list",
+				"subagent:settings",
+				"subagent:status",
+				"subagents:kill",
+				"subagents:send",
+			]),
+		);
 	});
 
 	it("does not register or advertise the tool when disabled", () => {
@@ -272,6 +333,7 @@ describe("Omega subagent integration", () => {
 			on: (name: string) => events.push(name),
 			registerTool: (tool: { name: string }) => tools.push(tool.name),
 			registerCommand: (name: string) => commands.push(name),
+			registerMessageRenderer: () => undefined,
 		} as unknown as OmegaAPI;
 
 		registerSubagents(omega, { settingsPath });
@@ -299,6 +361,7 @@ describe("Omega subagent integration", () => {
 				name: string,
 				options: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
 			) => commands.set(name, options.handler),
+			registerMessageRenderer: () => undefined,
 		} as unknown as OmegaAPI;
 		registerSubagents(omega, { settingsPath });
 		let reloads = 0;
@@ -409,6 +472,35 @@ describe("Omega subagent integration", () => {
 		processSubagentJsonLine(JSON.stringify({ type: "agent_end", messages: [message] }), result);
 		expect(result.structuredOutput).toEqual({ verdict: "confirmed" });
 		expect(isResultSuccess(result)).toBe(true);
+	});
+
+	it("assembles assistant streaming deltas for the runtime TUI", () => {
+		const result: SingleResult = {
+			agent: "reviewer",
+			agentSource: "builtin",
+			prompt: "Review",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		processSubagentJsonLine(
+			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "start" } }),
+			result,
+		);
+		processSubagentJsonLine(
+			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_start", contentIndex: 0 } }),
+			result,
+		);
+		processSubagentJsonLine(
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "实时回答" },
+			}),
+			result,
+		);
+		expect(result.liveContent).toEqual([{ type: "text", text: "实时回答" }]);
 	});
 
 	it("preserves result order while enforcing bounded concurrency", async () => {

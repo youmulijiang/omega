@@ -1,0 +1,42 @@
+import { describe, expect, it, vi } from "vitest";
+import { StudyStatusTracker, StudyStatusView } from "../src/study/status-view.ts";
+
+describe("StudyStatusView", () => {
+	it("renders live AI learning stages and the final knowledge summary", () => {
+		const tracker = new StudyStatusTracker();
+		tracker.start("分析参数化查询");
+		tracker.update("analyzing", "AI 正在分析材料并蒸馏可复用知识（test-model）");
+		const requestRender = vi.fn();
+		const view = new StudyStatusView(
+			tracker,
+			{ requestRender } as never,
+			{
+				fg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			} as never,
+			{
+				getKeys: () => ["esc"],
+				matches: () => false,
+			} as never,
+			vi.fn(),
+		);
+
+		try {
+			expect(view.render(80).join("\n")).toContain("AI 正在学习");
+			expect(view.render(80).join("\n")).toContain("AI 正在分析材料");
+
+			tracker.complete({
+				title: "参数化查询",
+				summary: "使用参数绑定隔离查询结构与数据。",
+				filename: "parameterized-query.md",
+			});
+			const completed = view.render(80).join("\n");
+			expect(requestRender).toHaveBeenCalled();
+			expect(completed).toContain("学习完成");
+			expect(completed).toContain("参数化查询");
+			expect(completed).toContain("parameterized-query.md");
+		} finally {
+			view.dispose();
+		}
+	});
+});

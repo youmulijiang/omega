@@ -196,9 +196,53 @@ export function processPiEvent(event, result) {
   switch (event.type) {
     case "agent_start":
       result.sawAgentStart = true;
+      result.runtimeState = "running";
       return false;
 
+    case "message_update": {
+      const update = event.assistantMessageEvent;
+      if (!update || typeof update !== "object") return false;
+      if (update.type === "start") {
+        result.liveContent = [];
+        return true;
+      }
+      if (!Array.isArray(result.liveContent)) result.liveContent = [];
+      if (update.type === "text_start") {
+        result.liveContent[update.contentIndex] = { type: "text", text: "" };
+        return true;
+      }
+      if (update.type === "text_delta") {
+        const part = result.liveContent[update.contentIndex];
+        if (part?.type === "text") part.text += update.delta ?? "";
+        return true;
+      }
+      if (update.type === "thinking_start") {
+        result.liveContent[update.contentIndex] = { type: "thinking", thinking: "" };
+        return true;
+      }
+      if (update.type === "thinking_delta") {
+        const part = result.liveContent[update.contentIndex];
+        if (part?.type === "thinking") part.thinking += update.delta ?? "";
+        return true;
+      }
+      if (update.type === "toolcall_start") {
+        result.liveContent[update.contentIndex] = {
+          type: "toolCall",
+          id: typeof update.id === "string" ? update.id : "pending",
+          name: typeof update.toolName === "string" ? update.toolName : "tool",
+          arguments: {},
+        };
+        return true;
+      }
+      if (update.type === "toolcall_end" && update.toolCall) {
+        result.liveContent[update.contentIndex] = update.toolCall;
+        return true;
+      }
+      return false;
+    }
+
     case "message_end":
+      result.liveContent = undefined;
       if (event.message?.role === "assistant") result.pendingToolError = undefined;
       return addAssistantMessage(result, event.message);
 

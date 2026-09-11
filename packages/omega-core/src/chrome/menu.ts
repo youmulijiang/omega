@@ -63,6 +63,10 @@ const TOOL_PRESENTATION: Record<ChromeDevToolsToolName, { label: string; descrip
 		label: "Capture network traffic",
 		description: "Record requests, headers, bodies, and WebSocket frames (chrome_devtools_network).",
 	},
+	chrome_devtools_extract_api: {
+		label: "Extract page APIs",
+		description: "Scan the live DOM and JavaScript for API paths and request context (chrome_devtools_extract_api).",
+	},
 	chrome_devtools_webmcp_list_tools: {
 		label: "List page WebMCP tools · Experimental",
 		description: "Discover page-provided WebMCP capabilities (chrome_devtools_webmcp_list_tools).",

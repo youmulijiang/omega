@@ -20,6 +20,7 @@ export { formatBashCallHighlighted, highlightBashCommand } from "./bash-highligh
 export { setupHeader } from "./header.ts";
 export type { OmegaPhase } from "./phase-indicator.ts";
 export { PhaseIndicator } from "./phase-indicator.ts";
+export { PixelSpinnerStatus, type PixelSpinnerStatusOptions } from "./pixel-spinner.ts";
 export { setupStatus } from "./status.ts";
 export { setupToolbox } from "./toolbox.ts";
 export { loadToolboxConfig, type ToolboxConfig } from "./toolbox-config.ts";

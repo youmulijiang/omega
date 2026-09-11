@@ -6,6 +6,7 @@
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../api.ts";
+import { extractApiTool } from "./api-extractor.ts";
 import { shutdownManagedBrowser, startManagedBrowserSession, syncManagedBrowserSettings } from "./browser-manager.ts";
 import { showChromeDevtoolsBrowserSettings } from "./browser-settings-menu.ts";
 import { setActivePageId } from "./cdp-client.ts";
@@ -72,6 +73,7 @@ export function registerChrome(omega: OmegaAPI) {
 	omega.registerTool(evaluateTool);
 	omega.registerTool(screenshotTool);
 	omega.registerTool(networkTool);
+	omega.registerTool(extractApiTool);
 	omega.registerTool(webMcpListToolsTool);
 	omega.registerTool(webMcpCallTool);
 	omega.registerTool(createChromeDevtoolsLoadTool(omega));

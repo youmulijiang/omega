@@ -48,3 +48,4 @@ collect.sh
 .agent/
 .omega/agent/models.json
 .omega/
+.pi/

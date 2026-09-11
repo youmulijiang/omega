@@ -43,6 +43,13 @@ const MAX_STDERR_BYTES = DEFAULT_MAX_BYTES;
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
+export type SubagentPromptBehavior = "steer" | "follow_up";
+
+export interface SubagentRuntimeControl {
+	sendPrompt: (message: string, behavior: SubagentPromptBehavior) => boolean;
+	setKeepAlive: (keepAlive: boolean) => void;
+}
+
 /** Feed one Omega RPC JSONL record into a programmatic subagent result. */
 export function processSubagentJsonLine(line: string, result: SingleResult): boolean {
 	return processPiJsonLine(line, result);
@@ -273,6 +280,8 @@ export function buildPiArgs(
 // ---------------------------------------------------------------------------
 
 export interface RunAgentOptions {
+	/** Parent-visible runtime task identifier. */
+	taskId?: string;
 	/** Fallback working directory when the call doesn't specify one. */
 	cwd: string;
 	/** All available agent configs. */
@@ -315,6 +324,10 @@ export interface RunAgentOptions {
 	workflowStack?: string[];
 	/** Abort signal for cancellation. */
 	signal?: AbortSignal;
+	/** Keep the RPC child alive after it becomes idle so the runtime can accept more prompts. */
+	keepAlive?: boolean;
+	/** Receive a writable control channel once the child RPC process is ready. */
+	onControlReady?: (control: SubagentRuntimeControl) => void;
 	/** Streaming update callback. */
 	onUpdate?: OnUpdateCallback;
 	/** Factory to wrap results into SubagentDetails. */
@@ -343,6 +356,7 @@ export function resolveRunTimeoutMs(callTimeoutMs: number | undefined): number {
 
 export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	const {
+		taskId,
 		cwd,
 		agents,
 		callIndex,
@@ -364,6 +378,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 		structuredOutputSchema,
 		workflowStack,
 		signal,
+		keepAlive = false,
+		onControlReady,
 		onUpdate,
 		makeDetails,
 	} = opts;
@@ -372,6 +388,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	if (!agent) {
 		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
 		return {
+			taskId,
 			callIndex,
 			agent: agentName,
 			agentSource: "unknown",
@@ -391,6 +408,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	if (needsParentSnapshot && (!parentSessionSnapshotJsonl || !parentSessionSnapshotJsonl.trim())) {
 		const message = 'Cannot run with initialContext="parent": missing parent session snapshot context.';
 		return {
+			taskId,
 			callIndex,
 			agent: agentName,
 			agentSource: agent.source,
@@ -411,6 +429,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 	const runTimeoutMs = resolveRunTimeoutMs(timeoutMs);
 
 	const result: SingleResult = {
+		taskId,
 		callIndex,
 		agent: agentName,
 		agentSource: agent.source,
@@ -514,9 +533,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			proc.stdin.on("error", () => {
 				/* ignore broken pipe on fast exits */
 			});
+			const writeRpcCommand = (command: Record<string, unknown>): boolean => {
+				if (proc.stdin.destroyed || !proc.stdin.writable) return false;
+				proc.stdin.write(`${JSON.stringify(command)}\n`);
+				return true;
+			};
 			// RPC preserves prompt bytes exactly. Print-mode stdin trims leading and
 			// trailing whitespace, while argv reinterprets leading "-" and "@".
-			proc.stdin.write(`${JSON.stringify({ type: "prompt", message: prompt })}\n`);
+			result.runtimeState = "running";
+			writeRpcCommand({ type: "prompt", message: prompt });
 
 			let buffer = "";
 			const stdoutDecoder = new StringDecoder("utf8");
@@ -533,6 +558,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			let terminationSettleTimer: NodeJS.Timeout | undefined;
 			let terminationStarted = false;
 			let forcedExitCode: number | undefined;
+			let keepAliveAfterSettlement = keepAlive;
 
 			const appendStderr = (text: string) => {
 				const combined = `${result.stderr}${text}`;
@@ -575,6 +601,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 			const clearRunWatchdogs = () => {
 				clearInactivityTimeoutTimer();
 				clearRunTimeoutTimer();
+			};
+
+			const resetRunTimeout = () => {
+				clearRunTimeoutTimer();
+				runTimeoutTimer = setTimeout(() => {
+					if (didClose || settled) return;
+					const timeoutSeconds = runTimeoutMs / 1000;
+					failAndTerminate(`Subagent exceeded its ${timeoutSeconds}s run timeout and was removed from the queue.`);
+				}, runTimeoutMs);
+				runTimeoutTimer.unref();
 			};
 
 			const clearRpcHandledTimer = () => {
@@ -684,12 +720,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 
 			resetInactivityTimeout();
 
-			runTimeoutTimer = setTimeout(() => {
-				if (didClose || settled) return;
-				const timeoutSeconds = runTimeoutMs / 1000;
-				failAndTerminate(`Subagent exceeded its ${timeoutSeconds}s run timeout and was removed from the queue.`);
-			}, runTimeoutMs);
-			runTimeoutTimer.unref();
+			resetRunTimeout();
 
 			const finish = (code: number) => {
 				if (settled) return;
@@ -755,13 +786,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 				}
 			};
 
-			const maybeFinishFromSettlement = () => {
-				if (!result.sawAgentSettled || didClose || settled) return;
-				clearInactivityTimeoutTimer();
+			const closeIdleRuntime = () => {
+				if (result.runtimeState !== "idle" || didClose || settled || terminationStarted) return;
 				if (!proc.stdin.destroyed) proc.stdin.end();
 				if (session) {
-					// Named sessions persist child history. Let Omega exit naturally so its
-					// session file is fully flushed before the parent reports completion.
 					if (!persistentSessionExitTimer) {
 						persistentSessionExitTimer = setTimeout(() => {
 							if (didClose || settled || !result.sawAgentSettled) return;
@@ -788,6 +816,42 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 				semanticCompletionTimer.unref();
 			};
 
+			onControlReady?.({
+				sendPrompt: (message, behavior) => {
+					const trimmed = message.trim();
+					if (!trimmed) return false;
+					result.runtimePrompts ??= [];
+					result.runtimePrompts.push({ text: message, afterMessageCount: result.messages.length });
+					result.sawAgentStart = false;
+					result.sawAgentEnd = false;
+					result.sawAgentSettled = false;
+					result.rpcPromptAccepted = false;
+					result.rpcPromptIdle = false;
+					result.handledWithoutAgent = false;
+					result.runtimeState = "running";
+					const sent = writeRpcCommand({ type: behavior, message });
+					if (sent) {
+						resetInactivityTimeout();
+						resetRunTimeout();
+						emitUpdate();
+					}
+					return sent;
+				},
+				setKeepAlive: (nextKeepAlive) => {
+					keepAliveAfterSettlement = nextKeepAlive;
+					if (!nextKeepAlive) closeIdleRuntime();
+				},
+			});
+
+			const maybeFinishFromSettlement = () => {
+				if (!result.sawAgentSettled || didClose || settled) return;
+				clearInactivityTimeoutTimer();
+				clearRunTimeoutTimer();
+				result.runtimeState = "idle";
+				if (keepAliveAfterSettlement) emitUpdate();
+				else closeIdleRuntime();
+			};
+
 			const onStdoutData = (chunk: Buffer) => {
 				resetInactivityTimeout();
 				buffer += stdoutDecoder.write(chunk);
@@ -809,6 +873,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<SingleResult> {
 
 			proc.on("close", (code, signalName) => {
 				didClose = true;
+				result.runtimeState = undefined;
 				buffer += stdoutDecoder.end();
 				const stderrRemainder = stderrDecoder.end();
 				if (stderrRemainder) appendStderr(stderrRemainder);

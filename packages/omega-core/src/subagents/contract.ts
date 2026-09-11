@@ -101,6 +101,7 @@ function formatCallFieldList(): string {
 
 function formatDelegationRules(): string {
 	return [
+		"- Interactive tool calls run in the background. Continue parent work after launch; use `subagent_status` to read current answers and `subagent_message` to steer an active task or queue a follow-up turn. While a child runtime is open, settled answers wait there; returning to main delivers all new answers together for synthesis.",
 		"- Do not use the same resolved session in more than one concurrent call. Same handle + same agent + same cwd conflicts; same handle + different agent is allowed. If a stale session lock is reported, remove the lock directory only after confirming no subagent is still running.",
 		"- Use `session` for multi-turn specialist work; omit it for one-off delegation, when the parent is running with `--no-session`, or from temporary parent-seeded subagent sessions.",
 		"- Agent-specific session preference and hint lines are advisory only. The tool creates or continues a persistent session only when a call includes `session`.",
@@ -176,7 +177,7 @@ Agent source labels are informational. Project agents come from this repository 
 
 ${formatSubagentUsageExample()}
 
-Each call runs in an isolated \`pi\` process. Multiple calls may run concurrently.
+Each call runs as a non-blocking background runtime in an isolated Omega process. Multiple calls may run concurrently.
 
 ### Agent selection
 
@@ -198,7 +199,7 @@ ${formatDelegationRules()}
 
 export function formatSubagentToolDescription(): string {
 	return [
-		"Delegate work to specialized subagents running in isolated pi processes.",
+		"Launch specialized subagents as non-blocking background tasks in isolated Omega processes.",
 		"",
 		"Use exactly one top-level `calls` array for both one and many invocations.",
 		"Each call requires `agent` and `prompt`; `prompt` is sent verbatim.",
@@ -212,7 +213,7 @@ export function formatSubagentToolDescription(): string {
 		"",
 		formatDelegationRules(),
 		"",
-		"Multiple calls may run concurrently.",
+		"Multiple calls may run concurrently. Task IDs return immediately; use subagent_status to read answers and subagent_message to coordinate with active tasks.",
 		"Model-facing output is capped at Omega's standard 50KB/2000-line limits; full truncated output is saved to a temporary file for the active session.",
 		"",
 		'Example: { calls: [{ agent: "review", prompt: "Review this diff", model: "anthropic/claude-sonnet-4", session: "api-review", initialContext: "empty" }] }',

@@ -38,6 +38,7 @@ describe("registerCommands", () => {
 			},
 		} as unknown as ExtensionAPI;
 		const ctx = {
+			sessionManager: { getSessionId: () => "plan-task-test", getBranch: () => [] },
 			ui: {
 				notify: vi.fn(),
 				setStatus: vi.fn(),
@@ -76,6 +77,7 @@ describe("registerCommands", () => {
 			on: vi.fn(),
 		} as unknown as ExtensionAPI;
 		const ctx = {
+			sessionManager: { getSessionId: () => "plan-prompt-test", getBranch: () => [] },
 			ui: {
 				notify: vi.fn(),
 				setStatus: vi.fn(),

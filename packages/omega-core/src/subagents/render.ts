@@ -120,8 +120,9 @@ function formatInitialContext(context?: InitialContext): string {
 
 function formatResultLabel(r: SingleResult, fallbackIndex: number): string {
 	const displayIndex = (r.callIndex ?? fallbackIndex) + 1;
+	const taskText = r.taskId ? ` ${r.taskId}` : "";
 	const sessionText = r.session ? ` session=${oneLine(r.session.handle)}` : "";
-	return `${displayIndex}: ${r.agent}${sessionText}`;
+	return `${displayIndex}:${taskText} ${r.agent}${sessionText}`;
 }
 
 function formatInitialContextStatus(r: SingleResult): string {
@@ -175,6 +176,29 @@ function renderDisplayItems(items: DisplayItem[], expanded: boolean, theme: { fg
 function statusIcon(r: SingleResult, theme: { fg: ThemeFg }): string {
 	if (r.exitCode === -1) return theme.fg("warning", "⏳");
 	return isResultError(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+}
+
+/** Render settled turns delivered from long-lived subagent runtimes. */
+export function renderRuntimeResults(
+	settlements: readonly { taskId: string; agent: string; output: string }[],
+	theme: ToolTheme,
+): Container {
+	const container = new Container();
+	container.addChild(
+		new Text(
+			`${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold("subagent result "))}${theme.fg("accent", `${settlements.length} ready`)}`,
+			0,
+			0,
+		),
+	);
+	for (const settlement of settlements) {
+		container.addChild(new Spacer(1));
+		container.addChild(
+			new Text(`${theme.fg("accent", settlement.taskId)} ${theme.fg("dim", `(${settlement.agent})`)}`, 0, 0),
+		);
+		container.addChild(new Markdown(settlement.output, 0, 0, getMarkdownTheme()));
+	}
+	return container;
 }
 
 // ---------------------------------------------------------------------------
