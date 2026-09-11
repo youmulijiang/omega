@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
 
 const ignoredDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
@@ -40,6 +40,7 @@ for (const file of files.sort()) {
 
 	function checkSpecifier(node) {
 		if (!isRelativeJavaScriptSpecifier(node.text)) return;
+		if (existsSync(resolve(dirname(file), node.text))) return;
 		const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
 		failures.push(`${file}:${line + 1}:${character + 1}: ${node.text}`);
 	}

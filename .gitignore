@@ -49,3 +49,4 @@ collect.sh
 .omega/agent/models.json
 .omega/
 .pi/
+packages/agent/docs/extensions/pi-server-artifact/index.md
