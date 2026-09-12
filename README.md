@@ -20,6 +20,7 @@ Omega 是基于 [Pi Coding Agent](https://pi.dev) 的可扩展智能体工作台
 
 - Node.js `>=22.19.0`
 - npm
+- Bun（仅打包独立可执行文件时需要）
 - 一个已配置的 LLM Provider 凭据（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`）
 
 ```bash
@@ -105,6 +106,36 @@ npm run build:offline  # 使用已有模型数据构建
 ```bash
 node node_modules/vitest/dist/cli.js --run packages/omega-core/tests
 ```
+
+## 打包独立可执行文件
+
+Windows 上打包当前架构（默认 `windows-x64`）：
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+打包所有支持的平台，或只打包指定平台：
+
+```powershell
+.\scripts\build-all.ps1
+.\scripts\build-all.ps1 -Platform windows-arm64
+```
+
+```bash
+./scripts/build-all.sh
+./scripts/build-all.sh --platform linux-x64
+```
+
+默认产物位于 `out/`：Windows 为 `omega-windows-<arch>.zip`，Linux 和 macOS 为
+`omega-<platform>.tar.gz`。可用 `-OutDir <目录>`（PowerShell）或 `--out <目录>`
+（Bash）修改输出目录；依赖和 workspace 已构建时，可组合使用
+`-SkipInstall -SkipBuild` 或 `--skip-install --skip-build` 缩短重复打包时间。
+
+Windows 的 `omega.exe` 使用 [`icon/omega.ico`](icon/omega.ico) 作为图标源。
+如果该文件实际为 PNG 格式，打包脚本会临时转换为标准多尺寸 ICO；
+临时文件不会作为额外文件留在压缩包中。
+Linux 和 macOS 的无窗口命令行可执行文件没有嵌入式应用图标。
 
 ## 安全边界
 

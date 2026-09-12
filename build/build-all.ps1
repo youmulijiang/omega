@@ -19,7 +19,7 @@
     node_modules first and therefore requires all processes using it to stop.
 
 .PARAMETER SkipDeps
-    Skip installing cross-platform native bindings.
+    Skip the preflight check for bundled native bindings.
 
 .PARAMETER SkipBuild
     Skip the TypeScript/package build step.
@@ -94,17 +94,12 @@ function Remove-BuildItem([string]$path, [string]$description, [switch]$Recurse)
 
 function Test-WindowsPlatform([string]$plat) { return $plat -like 'windows-*' }
 
-# Maps a platform name to its clipboard native package and .node file.
-function Get-ClipboardNative([string]$plat) {
-    switch ($plat) {
-        'darwin-arm64'     { @{ Package = 'clipboard-darwin-arm64';     File = 'clipboard.darwin-arm64.node' } }
-        'darwin-x64'       { @{ Package = 'clipboard-darwin-x64';       File = 'clipboard.darwin-x64.node' } }
-        'linux-arm64'      { @{ Package = 'clipboard-linux-arm64-gnu';  File = 'clipboard.linux-arm64-gnu.node' } }
-        'linux-x64'        { @{ Package = 'clipboard-linux-x64-gnu';    File = 'clipboard.linux-x64-gnu.node' } }
-        'windows-arm64'    { @{ Package = 'clipboard-win32-arm64-msvc'; File = 'clipboard.win32-arm64-msvc.node' } }
-        'windows-x64'      { @{ Package = 'clipboard-win32-x64-msvc';   File = 'clipboard.win32-x64-msvc.node' } }
-        default { Die "Unsupported platform: $plat" }
-    }
+function Get-NativeBinding([string]$plat) {
+    $parts = $plat.Split('-', 2)
+    $nativePlatform = if ($parts[0] -eq 'windows') { 'win32' } else { $parts[0] }
+    $nativeArch = "$nativePlatform-$($parts[1])"
+    $fileName = if ($nativePlatform -eq 'linux') { 'linux-platform-x11.node' } else { "$nativePlatform-platform.node" }
+    return "packages/tui/native/$nativePlatform/prebuilds/$nativeArch/$fileName"
 }
 
 # ---------------------------------------------------------------------------
@@ -166,38 +161,18 @@ if (-not $SkipInstall) {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Cross-platform native bindings (clipboard)
+# 2. Bundled cross-platform native bindings
 # ---------------------------------------------------------------------------
 if (-not $SkipDeps) {
-    Step 'Installing cross-platform native bindings...'
-
-    $clipboardVersion = node -p "require('./packages/coding-agent/package.json').optionalDependencies['@mariozechner/clipboard']"
-    if ($LASTEXITCODE -ne 0) { Die 'Failed to read clipboard version.' }
-
-    $nativeDepsDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
-    Assert-SafeChildPath $nativeDepsDir ([System.IO.Path]::GetTempPath()) 'temporary dependency directory'
-    New-Item -ItemType Directory -Path $nativeDepsDir | Out-Null
-    '{"private":true}' | Set-Content -Path "$nativeDepsDir/package.json" -Encoding UTF8
-
-    try {
-        $nativePackageNames = $platforms | ForEach-Object { (Get-ClipboardNative $_).Package } | Sort-Object -Unique
-        $pkgs = @("@mariozechner/clipboard@$clipboardVersion")
-        $pkgs += $nativePackageNames | ForEach-Object { '@mariozechner/{0}@{1}' -f $_, $clipboardVersion }
-        npm install --prefix $nativeDepsDir --include=optional --no-save --package-lock=false --force --ignore-scripts @pkgs
-        if ($LASTEXITCODE -ne 0) { Die 'Failed to install native bindings.' }
-
-        New-Item -ItemType Directory -Force -Path 'node_modules/@mariozechner' | Out-Null
-        foreach ($pkg in @('clipboard') + $nativePackageNames) {
-            $dest = "node_modules/@mariozechner/$pkg"
-            Assert-SafeChildPath $dest (Join-Path $repoRoot 'node_modules/@mariozechner') 'workspace native dependency'
-            Remove-BuildItem $dest 'workspace native dependency' -Recurse
-            Copy-Item -Recurse "$nativeDepsDir/node_modules/@mariozechner/$pkg" $dest
+    Step 'Checking bundled native bindings...'
+    foreach ($plat in $platforms) {
+        $nativeBinding = Join-Path $repoRoot (Get-NativeBinding $plat)
+        if (-not (Test-Path -LiteralPath $nativeBinding)) {
+            Die "Bundled native binding is missing: $nativeBinding"
         }
-    } finally {
-        Remove-Item -LiteralPath $nativeDepsDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 } else {
-    Step 'Skipping native bindings (--SkipDeps)'
+    Step 'Skipping native binding checks (--SkipDeps)'
 }
 
 # ---------------------------------------------------------------------------
@@ -225,9 +200,13 @@ Set-Location $agentDir
 $omegaEntry = Join-Path $repoRoot 'packages/omega-core/dist/bun/cli.js'
 $omegaDist = Join-Path $repoRoot 'packages/omega-core/dist'
 $imageWorker = Join-Path $agentDir 'src/utils/image-resize-worker.ts'
+$iconSource = Join-Path $repoRoot 'icon/omega.ico'
 
 if (-not (Test-Path -LiteralPath $omegaEntry)) {
     Die "OMEGA binary entry is missing: $omegaEntry. Run without -SkipBuild first."
+}
+if (($platforms | Where-Object { Test-WindowsPlatform $_ }) -and -not (Test-Path -LiteralPath $iconSource)) {
+    Die "Windows icon source is missing: $iconSource"
 }
 
 # Bun only embeds files that are part of the compile inputs. Omega loads its
@@ -269,14 +248,23 @@ foreach ($plat in $platforms) {
     if ($plat -match '-x64$') { $bunTarget = "$bunTarget-baseline" }
 
     $exePath = if (Test-WindowsPlatform $plat) { "$OutDir/$plat/omega.exe" } else { "$OutDir/$plat/omega" }
+    $windowsArgs = @()
+    if (Test-WindowsPlatform $plat) {
+        $windowsIcon = "$OutDir/$plat/omega.ico"
+        node (Join-Path $repoRoot 'scripts/create-windows-icon.mjs') $iconSource $windowsIcon
+        if ($LASTEXITCODE -ne 0) { Die "Failed to prepare the Windows icon for $plat." }
+        $windowsArgs = @("--windows-icon=$windowsIcon")
+    }
     bun build --compile --no-compile-autoload-bunfig `
         --target=$bunTarget `
+        @windowsArgs `
         $omegaEntry `
         $imageWorker `
         @omegaAssets `
         --outfile $exePath
 
-    if ($LASTEXITCODE -ne 0) { Die "Bun compile failed for $plat." }
+    $compileExitCode = $LASTEXITCODE
+    if ($compileExitCode -ne 0) { Die "Bun compile failed for $plat." }
     Write-Host "  -> $exePath" -ForegroundColor Green
 }
 
@@ -291,9 +279,8 @@ foreach ($plat in $platforms) {
     # Metadata & docs
     Copy-Item 'package.json'  "$dest/"
     npm pkg set "version=$omegaVersion" --prefix $dest | Out-Null
-    foreach ($f in @('README.md', 'CHANGELOG.md')) {
-        if (Test-Path $f) { Copy-Item $f "$dest/" }
-    }
+    Copy-Item (Join-Path $repoRoot 'README.md') "$dest/README.md"
+    if (Test-Path 'CHANGELOG.md') { Copy-Item 'CHANGELOG.md' "$dest/" }
 
     # WASM
     $wasmSrc = '../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'
@@ -313,39 +300,15 @@ foreach ($plat in $platforms) {
         if (Test-Path $dir) { Copy-Item -Recurse $dir "$dest/" }
     }
 
-    # Clipboard native binding
-    $clip = Get-ClipboardNative $plat
-    $clipDest = "$dest/node_modules/@mariozechner"
-    New-Item -ItemType Directory -Force -Path $clipDest | Out-Null
-    if (-not (Test-Path -LiteralPath "../../node_modules/@mariozechner/clipboard")) {
-        Die 'Clipboard package is missing. Run without -SkipDeps first.'
+    # The TUI's platform helper now provides clipboard and terminal integration.
+    $nativeRelativePath = Get-NativeBinding $plat
+    $nativeSource = Join-Path $repoRoot $nativeRelativePath
+    if (-not (Test-Path -LiteralPath $nativeSource)) {
+        Die "Bundled native binding is missing: $nativeSource"
     }
-    if (-not (Test-Path -LiteralPath "../../node_modules/@mariozechner/$($clip.Package)")) {
-        Die "$($clip.Package) is missing. Run without -SkipDeps first."
-    }
-    Copy-Item -Recurse "../../node_modules/@mariozechner/clipboard"        "$clipDest/"
-    Copy-Item -Recurse "../../node_modules/@mariozechner/$($clip.Package)" "$clipDest/"
-    Copy-Item "../../node_modules/@mariozechner/$($clip.Package)/$($clip.File)" `
-              "$clipDest/clipboard/"
-
-    # Platform-specific terminal native helpers
-    if ($plat -like 'darwin-*') {
-        $darwinHelper = "../tui/native/darwin/prebuilds/$plat/darwin-modifiers.node"
-        if (Test-Path $darwinHelper) {
-            $darwinDest = "$dest/native/darwin/prebuilds/$plat"
-            New-Item -ItemType Directory -Force -Path $darwinDest | Out-Null
-            Copy-Item $darwinHelper "$darwinDest/"
-        }
-    }
-    if (Test-WindowsPlatform $plat) {
-        $win32Arch = if ($plat -eq 'windows-arm64') { 'win32-arm64' } else { 'win32-x64' }
-        $consoleSrc = "../tui/native/win32/prebuilds/$win32Arch/win32-console-mode.node"
-        if (Test-Path $consoleSrc) {
-            $consoleDest = "$dest/native/win32/prebuilds/$win32Arch"
-            New-Item -ItemType Directory -Force -Path $consoleDest | Out-Null
-            Copy-Item $consoleSrc "$consoleDest/"
-        }
-    }
+    $nativeDestination = Join-Path $dest ($nativeRelativePath -replace '^packages/tui/', '')
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $nativeDestination) | Out-Null
+    Copy-Item -LiteralPath $nativeSource -Destination $nativeDestination
 }
 
 # ---------------------------------------------------------------------------
@@ -385,9 +348,12 @@ foreach ($plat in $platforms) {
     $platformDir = Join-Path $OutDir $plat
     Assert-SafeChildPath $platformDir $OutDir 'extracted platform directory'
     Remove-BuildItem $platformDir 'platform staging directory' -Recurse
-    New-Item -ItemType Directory -Force -Path $plat | Out-Null
     if (Test-WindowsPlatform $plat) {
+        New-Item -ItemType Directory -Force -Path $plat | Out-Null
         Expand-Archive -Path "omega-$plat.zip" -DestinationPath $plat -Force
+        if (-not (Test-Path -LiteralPath (Join-Path $platformDir 'omega.ico'))) {
+            Die "Windows icon is missing from omega-$plat.zip."
+        }
     } else {
         Remove-BuildItem 'omega' 'temporary wrapper directory' -Recurse
         tar -xzf "omega-$plat.tar.gz"

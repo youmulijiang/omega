@@ -235,6 +235,7 @@ for platform in "${PLATFORMS[@]}"; do
             "$OMEGA_ENTRY" "$IMAGE_WORKER" \
             "${ASSET_ARGS[@]}" \
             --outfile "$OUTPUT_DIR/$platform/omega.exe"
+        rm -f "$windows_icon"
     else
         bun build --compile --no-compile-autoload-bunfig --target="$bun_target" \
             "$OMEGA_ENTRY" "$IMAGE_WORKER" \
@@ -316,10 +317,6 @@ for platform in "${PLATFORMS[@]}"; do
     rm -rf "$platform"
     if is_windows_platform "$platform"; then
         mkdir -p "$platform" && (cd "$platform" && unzip -q "../omega-$platform.zip")
-        if [[ ! -f "$platform/omega.ico" ]]; then
-            echo "Windows icon is missing from omega-$platform.zip" >&2
-            exit 1
-        fi
     else
         rm -rf omega
         tar -xzf "omega-$platform.tar.gz"

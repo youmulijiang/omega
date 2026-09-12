@@ -16,7 +16,7 @@
     node_modules first and therefore requires all processes using it to stop.
 
 .PARAMETER SkipDeps
-    Skip installing cross-platform native bindings.
+    Skip the preflight check for bundled Windows native bindings.
 
 .PARAMETER SkipBuild
     Skip the TypeScript/package build step.
@@ -146,41 +146,20 @@ if (-not $SkipInstall) {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Cross-platform native bindings (clipboard)
+# 2. Bundled Windows native bindings
 # ---------------------------------------------------------------------------
 if (-not $SkipDeps) {
-    Step 'Installing Windows native bindings...'
+    Step 'Checking bundled Windows native bindings...'
 
-    $clipboardVersion = node -p "require('./packages/coding-agent/package.json').optionalDependencies['@mariozechner/clipboard']"
-    if ($LASTEXITCODE -ne 0) { Die 'Failed to read clipboard version.' }
-
-    $nativeDepsDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
-    Assert-SafeChildPath $nativeDepsDir ([System.IO.Path]::GetTempPath()) 'temporary dependency directory'
-    New-Item -ItemType Directory -Path $nativeDepsDir | Out-Null
-    '{"private":true}' | Set-Content -Path "$nativeDepsDir/package.json" -Encoding UTF8
-
-    try {
-        $nativePackageNames = $platforms | ForEach-Object {
-            if ($_ -eq 'windows-arm64') { 'clipboard-win32-arm64-msvc' }
-            else { 'clipboard-win32-x64-msvc' }
-        } | Sort-Object -Unique
-        $pkgs = @("@mariozechner/clipboard@$clipboardVersion")
-        $pkgs += $nativePackageNames | ForEach-Object { '@mariozechner/{0}@{1}' -f $_, $clipboardVersion }
-        npm install --prefix $nativeDepsDir --include=optional --no-save --package-lock=false --force --ignore-scripts @pkgs
-        if ($LASTEXITCODE -ne 0) { Die 'Failed to install native bindings.' }
-
-        New-Item -ItemType Directory -Force -Path 'node_modules/@mariozechner' | Out-Null
-        foreach ($pkg in @('clipboard') + $nativePackageNames) {
-            $dest = "node_modules/@mariozechner/$pkg"
-            Assert-SafeChildPath $dest (Join-Path $repoRoot 'node_modules/@mariozechner') 'workspace native dependency'
-            Remove-BuildItem $dest 'workspace native dependency' -Recurse
-            Copy-Item -Recurse "$nativeDepsDir/node_modules/@mariozechner/$pkg" $dest
+    foreach ($plat in $platforms) {
+        $win32Arch = if ($plat -eq 'windows-arm64') { 'win32-arm64' } else { 'win32-x64' }
+        $nativeBinding = Join-Path $repoRoot "packages/tui/native/win32/prebuilds/$win32Arch/win32-platform.node"
+        if (-not (Test-Path -LiteralPath $nativeBinding)) {
+            Die "Bundled Windows native binding is missing: $nativeBinding"
         }
-    } finally {
-        Remove-Item -LiteralPath $nativeDepsDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 } else {
-    Step 'Skipping native bindings (--SkipDeps)'
+    Step 'Skipping native binding checks (--SkipDeps)'
 }
 
 # ---------------------------------------------------------------------------
@@ -208,9 +187,13 @@ Set-Location $agentDir
 $omegaEntry = Join-Path $repoRoot 'packages/omega-core/dist/bun/cli.js'
 $omegaDist = Join-Path $repoRoot 'packages/omega-core/dist'
 $imageWorker = Join-Path $agentDir 'src/utils/image-resize-worker.ts'
+$iconSource = Join-Path $repoRoot 'icon/omega.ico'
 
 if (-not (Test-Path -LiteralPath $omegaEntry)) {
     Die "OMEGA binary entry is missing: $omegaEntry. Run without -SkipBuild first."
+}
+if (-not (Test-Path -LiteralPath $iconSource)) {
+    Die "Windows icon source is missing: $iconSource"
 }
 
 # Bun only embeds files that are part of the compile inputs. Omega loads its
@@ -248,14 +231,21 @@ foreach ($plat in $platforms) {
     if ($plat -match '-x64$') { $bunTarget = "$bunTarget-baseline" }
 
     $exePath = "$OutDir/$plat/omega.exe"
+    $windowsIcon = "$OutDir/$plat/omega.ico"
+    node (Join-Path $repoRoot 'scripts/create-windows-icon.mjs') $iconSource $windowsIcon
+    if ($LASTEXITCODE -ne 0) { Die "Failed to prepare the Windows icon for $plat." }
     bun build --compile --no-compile-autoload-bunfig `
         --target=$bunTarget `
+        --windows-icon=$windowsIcon `
         $omegaEntry `
         $imageWorker `
         @omegaAssets `
         --outfile $exePath
 
-    if ($LASTEXITCODE -ne 0) { Die "Bun compile failed for $plat." }
+    $compileExitCode = $LASTEXITCODE
+    Remove-BuildItem $windowsIcon 'temporary Windows icon'
+
+    if ($compileExitCode -ne 0) { Die "Bun compile failed for $plat." }
     Write-Host "  -> $exePath" -ForegroundColor Green
 }
 
@@ -270,9 +260,8 @@ foreach ($plat in $platforms) {
     # Metadata & docs
     Copy-Item 'package.json'  "$dest/"
     npm pkg set "version=$omegaVersion" --prefix $dest | Out-Null
-    foreach ($f in @('README.md', 'CHANGELOG.md')) {
-        if (Test-Path $f) { Copy-Item $f "$dest/" }
-    }
+    Copy-Item (Join-Path $repoRoot 'README.md') "$dest/README.md"
+    if (Test-Path 'CHANGELOG.md') { Copy-Item 'CHANGELOG.md' "$dest/" }
 
     # WASM
     $wasmSrc = '../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'
@@ -292,31 +281,15 @@ foreach ($plat in $platforms) {
         if (Test-Path $dir) { Copy-Item -Recurse $dir "$dest/" }
     }
 
-    # Clipboard native binding
-    $clipNativePkg  = if ($plat -eq 'windows-arm64') { 'clipboard-win32-arm64-msvc' } else { 'clipboard-win32-x64-msvc' }
-    $clipNativeFile = if ($plat -eq 'windows-arm64') { 'clipboard.win32-arm64-msvc.node' } else { 'clipboard.win32-x64-msvc.node' }
-
-    $clipDest = "$dest/node_modules/@mariozechner"
-    New-Item -ItemType Directory -Force -Path $clipDest | Out-Null
-    if (-not (Test-Path -LiteralPath "../../node_modules/@mariozechner/clipboard")) {
-        Die 'Clipboard package is missing. Run without -SkipDeps first.'
-    }
-    if (-not (Test-Path -LiteralPath "../../node_modules/@mariozechner/$clipNativePkg")) {
-        Die "$clipNativePkg is missing. Run without -SkipDeps first."
-    }
-    Copy-Item -Recurse "../../node_modules/@mariozechner/clipboard"      "$clipDest/"
-    Copy-Item -Recurse "../../node_modules/@mariozechner/$clipNativePkg" "$clipDest/"
-    Copy-Item "../../node_modules/@mariozechner/$clipNativePkg/$clipNativeFile" `
-              "$clipDest/clipboard/"
-
-    # Win32 console-mode native helper
+    # Win32 platform helper (clipboard and terminal input)
     $win32Arch = if ($plat -eq 'windows-arm64') { 'win32-arm64' } else { 'win32-x64' }
-    $consoleSrc = "../tui/native/win32/prebuilds/$win32Arch/win32-console-mode.node"
-    if (Test-Path $consoleSrc) {
-        $consoleDest = "$dest/native/win32/prebuilds/$win32Arch"
-        New-Item -ItemType Directory -Force -Path $consoleDest | Out-Null
-        Copy-Item $consoleSrc "$consoleDest/"
+    $consoleSrc = "../tui/native/win32/prebuilds/$win32Arch/win32-platform.node"
+    if (-not (Test-Path -LiteralPath $consoleSrc)) {
+        Die "Bundled Windows native binding is missing: $consoleSrc"
     }
+    $consoleDest = "$dest/native/win32/prebuilds/$win32Arch"
+    New-Item -ItemType Directory -Force -Path $consoleDest | Out-Null
+    Copy-Item $consoleSrc "$consoleDest/"
 }
 
 # ---------------------------------------------------------------------------
