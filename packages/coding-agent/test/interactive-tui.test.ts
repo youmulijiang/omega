@@ -47,6 +47,19 @@ class RecordingTerminal extends VirtualTerminal implements Terminal {
 	}
 }
 
+class FailFirstStartTerminal extends RecordingTerminal {
+	private shouldFailStart = true;
+
+	override start(onInput: (data: string) => void, onResize: () => void): void {
+		if (this.shouldFailStart) {
+			this.shouldFailStart = false;
+			this.startCount += 1;
+			throw new Error("alternate screen unavailable");
+		}
+		super.start(onInput, onResize);
+	}
+}
+
 describe("createInteractiveTui", () => {
 	it("selects the alternate-screen renderer only when requested", async () => {
 		const mainTerminal = new RecordingTerminal();
@@ -166,6 +179,54 @@ describe("createInteractiveTui", () => {
 
 		expect(stableUi.mode).toBe("fullscreen");
 		expect([terminal.startCount, terminal.stopCount]).toEqual([2, 2]);
+	});
+
+	it("falls back to regular mode when the initial fullscreen renderer cannot start", () => {
+		const terminal = new FailFirstStartTerminal(40, 8);
+		const renderer = createInteractiveTui({
+			tuiMode: "fullscreen",
+			showHardwareCursor: false,
+			logDirectory: "/tmp",
+			terminal,
+		});
+		const component = new Text("content", 0, 0);
+		renderer.addChild(component);
+
+		type FallbackContext = {
+			runtimeHost: { session: { settingsManager: { getFullscreenCopyOnSelect: () => boolean } } };
+			renderer: ReturnType<typeof createInteractiveTui>;
+			ui: TUI;
+			options: { tuiMode?: TuiMode; startupDiagnostics?: Array<{ type: "warning"; message: string }> };
+			themeController: { rebindTui: () => void };
+			extensionTerminalInputSubscriptions: Set<never>;
+		};
+		const context = Object.assign(Object.create(InteractiveMode.prototype), {
+			runtimeHost: { session: { settingsManager: { getFullscreenCopyOnSelect: () => true } } },
+			renderer,
+			ui: undefined as unknown as TUI,
+			options: { tuiMode: "fullscreen" as TuiMode },
+			themeController: { rebindTui: vi.fn() },
+			extensionTerminalInputSubscriptions: new Set<never>(),
+		}) as FallbackContext;
+		context.ui = createInteractiveTuiReference(() => context.renderer);
+		const { startInteractiveTuiWithFallback } = InteractiveMode.prototype as unknown as {
+			startInteractiveTuiWithFallback(this: FallbackContext): void;
+		};
+
+		startInteractiveTuiWithFallback.call(context);
+
+		expect(context.renderer.mode).toBe("regular");
+		expect(context.options.tuiMode).toBe("regular");
+		expect(context.options.startupDiagnostics).toEqual([
+			{
+				type: "warning",
+				message: "Fullscreen TUI failed to start (alternate screen unavailable); fell back to regular mode.",
+			},
+		]);
+		expect(context.renderer.children).toEqual([component]);
+		expect([terminal.startCount, terminal.stopCount]).toEqual([2, 1]);
+
+		context.renderer.stop();
 	});
 });
 

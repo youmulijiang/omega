@@ -24,6 +24,7 @@ function createUiContext(
 		setWidget: () => {},
 		setFooter: () => {},
 		setHeader: () => {},
+		setSidebar: () => {},
 		setTitle: () => {},
 		custom: async <T>() => undefined as T,
 		pasteToEditor: () => {},
@@ -270,7 +271,8 @@ describe("regression #5943: session_start transient UI", () => {
 
 		const rendered = root.render(80).join("\n");
 		expect(rendered).not.toContain("stale resources");
-		expect(rendered.indexOf("[Context]")).toBeLessThan(rendered.indexOf("restored message"));
+		expect(rendered).not.toContain("[Context]");
+		expect(rendered).toContain("restored message");
 	});
 
 	it("renders replacement session state before session_start handlers can notify", async () => {

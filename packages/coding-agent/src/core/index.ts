@@ -55,6 +55,7 @@ export {
 	type ExtensionHandler,
 	ExtensionRunner,
 	type ExtensionShortcut,
+	type ExtensionSidebarOptions,
 	type ExtensionUIContext,
 	type InlineExtension,
 	type LoadExtensionsResult,

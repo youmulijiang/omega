@@ -21,6 +21,11 @@ export interface AppKeybindings {
 	"app.model.cycleForward": true;
 	"app.model.cycleBackward": true;
 	"app.model.select": true;
+	"app.sidebar.previousTab": true;
+	"app.sidebar.nextTab": true;
+	"app.sidebar.focus": true;
+	"app.sidebar.switchPanel": true;
+	"app.sidebar.toggleArt": true;
 	"app.tools.expand": true;
 	"app.thinking.toggle": true;
 	"app.session.toggleNamedFilter": true;
@@ -114,6 +119,11 @@ export const KEYBINDINGS = {
 		description: "Cycle to previous model",
 	},
 	"app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
+	"app.sidebar.previousTab": { defaultKeys: "ctrl+alt+h", description: "Select previous sidebar tab" },
+	"app.sidebar.nextTab": { defaultKeys: "ctrl+alt+l", description: "Select next sidebar tab" },
+	"app.sidebar.focus": { defaultKeys: "f6", description: "Focus or leave the sidebar" },
+	"app.sidebar.switchPanel": { defaultKeys: "f7", description: "Switch sidebar panel focus" },
+	"app.sidebar.toggleArt": { defaultKeys: "ctrl+o", description: "Expand or collapse sidebar animation" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",

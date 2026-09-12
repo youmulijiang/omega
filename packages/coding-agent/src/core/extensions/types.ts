@@ -111,6 +111,18 @@ export interface ExtensionWidgetOptions {
 	placement?: WidgetPlacement;
 }
 
+/** Fullscreen sidebar sizing and responsive visibility. */
+export interface ExtensionSidebarOptions {
+	/** Fixed sidebar width in terminal columns. Defaults to 44. */
+	width?: number;
+	/** Place the sidebar on the left or right. Defaults to right. */
+	side?: "left" | "right";
+	/** Hide the sidebar below this terminal width. Defaults to 100. */
+	minTerminalWidth?: number;
+	/** Hide the sidebar below this terminal height. Defaults to 18. */
+	minTerminalHeight?: number;
+}
+
 /** Raw terminal input listener for extensions. */
 export type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
 
@@ -190,6 +202,14 @@ export interface ExtensionUIContext {
 
 	/** Set a custom header component (shown at startup, above chat), or undefined to restore the built-in header. */
 	setHeader(factory: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined): void;
+
+	/** Set a fullscreen-only sidebar component. Pass undefined to clear it. */
+	setSidebar(
+		factory:
+			| ((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
+			| undefined,
+		options?: ExtensionSidebarOptions,
+	): void;
 
 	/** Set the terminal window/tab title. */
 	setTitle(title: string): void;

@@ -1,4 +1,19 @@
-import { type Component, ScrollView, type ScrollViewScrollbar, VStack } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	HStack,
+	ScrollView,
+	type ScrollViewScrollbar,
+	type StackEntry,
+	VStack,
+} from "@earendil-works/pi-tui";
+
+export interface ChatViewportSidebar {
+	readonly component: Component;
+	readonly width: number;
+	readonly side: "left" | "right";
+	readonly minTerminalWidth: number;
+	readonly minTerminalHeight: number;
+}
 
 export interface ChatViewportOptions {
 	readonly document: Component;
@@ -16,6 +31,25 @@ export interface ChatViewportOptions {
 export interface ChatViewport {
 	readonly root: Component;
 	readonly transcript: ScrollView;
+}
+
+/** Add an optional fixed-width sidebar to the fullscreen chat layout. */
+export function createChatViewportRoot(content: Component, sidebar?: ChatViewportSidebar): Component {
+	if (!sidebar) return content;
+
+	const sidebarWidth = Math.max(1, Math.floor(sidebar.width));
+	const contentChild = { component: content, basis: 0, grow: 1, shrink: 1, minSize: 1 } as const;
+	const sidebarChild: StackEntry = {
+		component: sidebar.component,
+		basis: sidebarWidth,
+		grow: 0,
+		shrink: 0,
+		minSize: sidebarWidth,
+		maxSize: sidebarWidth,
+		visible: ({ width, height }) =>
+			width >= Math.max(sidebar.minTerminalWidth, sidebarWidth + 1) && height >= sidebar.minTerminalHeight,
+	};
+	return new HStack(sidebar.side === "left" ? [sidebarChild, contentChild] : [contentChild, sidebarChild]);
 }
 
 /** Shared fullscreen transcript and fixed input-dock layout. */

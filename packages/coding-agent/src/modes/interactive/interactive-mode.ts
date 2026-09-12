@@ -71,6 +71,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionRunner,
+	ExtensionSidebarOptions,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
 	ExtensionWidgetOptions,
@@ -110,7 +111,7 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
 import { ensureTool, type ToolStatus } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
-import { createChatViewport } from "./chat-viewport.ts";
+import { createChatViewport, createChatViewportRoot } from "./chat-viewport.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -139,6 +140,7 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
+import { StartupHeader } from "./components/startup-header.ts";
 import {
 	BranchSummaryStatusIndicator,
 	CompactionStatusIndicator,
@@ -381,6 +383,7 @@ export class InteractiveMode {
 	private chatContainer: Container;
 	private documentContainer: Container;
 	private transcriptScrollView: TuiLayouts.ScrollView | undefined;
+	private chatViewportRoot: Component | undefined;
 	private fullscreenLayoutRoot: Component | undefined;
 	private pendingMessagesContainer: Container;
 	private statusContainer: Container;
@@ -495,6 +498,16 @@ export class InteractiveMode {
 
 	// Custom header from extension (undefined = use built-in header)
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
+	private headerChangeToken = 0;
+
+	// Fullscreen-only sidebar from extension.
+	private customSidebar: (Component & { dispose?(): void }) | undefined = undefined;
+	private customSidebarOptions: Required<ExtensionSidebarOptions> = {
+		width: 44,
+		side: "right",
+		minTerminalWidth: 100,
+		minTerminalHeight: 18,
+	};
 
 	private options: InteractiveModeOptions;
 	private readonly onRightClickPaste = (): void => {
@@ -530,7 +543,7 @@ export class InteractiveMode {
 			await this.rebindCurrentSession({ renderBeforeBind: true });
 			await this.themeController.applyFromSettings();
 		});
-		this.version = VERSION;
+		this.version = process.env.OMEGA_VERSION ?? VERSION;
 		this.renderer = createInteractiveTui({
 			tuiMode,
 			showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
@@ -770,7 +783,7 @@ export class InteractiveMode {
 		}
 		this.startupNoticesShown = true;
 
-		if (!this.changelogMarkdown) {
+		if (process.env.OMEGA_VERSION || !this.changelogMarkdown) {
 			return;
 		}
 
@@ -780,7 +793,7 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new DynamicBorder());
 		if (this.settingsManager.getCollapseChangelog()) {
 			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
-			const latestVersion = versionMatch ? versionMatch[1] : this.version;
+			const latestVersion = versionMatch ? versionMatch[1] : VERSION;
 			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
 			this.chatContainer.addChild(new Text(condensedText, 1, 0));
 		} else {
@@ -863,6 +876,32 @@ export class InteractiveMode {
 		return true;
 	}
 
+	private startInteractiveTuiWithFallback(): void {
+		try {
+			this.ui.start();
+			return;
+		} catch (fullscreenError) {
+			if (this.renderer.mode !== "fullscreen") throw fullscreenError;
+
+			try {
+				if (!this.switchTuiMode("regular", false)) {
+					throw new Error("Fullscreen renderer could not be replaced while an overlay is active");
+				}
+			} catch (regularError) {
+				throw new AggregateError(
+					[fullscreenError, regularError],
+					"Failed to start both fullscreen and regular TUI modes",
+				);
+			}
+
+			const reason = fullscreenError instanceof Error ? fullscreenError.message : String(fullscreenError);
+			this.options.startupDiagnostics = [
+				...(this.options.startupDiagnostics ?? []),
+				{ type: "warning", message: `Fullscreen TUI failed to start (${reason}); fell back to regular mode.` },
+			];
+		}
+	}
+
 	async init(): Promise<void> {
 		if (this.isInitialized) return;
 
@@ -901,7 +940,8 @@ export class InteractiveMode {
 			scrollbarThumbStyle: (text) => theme.fg("scrollbarThumb", text),
 		});
 		this.transcriptScrollView = viewport.transcript;
-		this.fullscreenLayoutRoot = viewport.root;
+		this.chatViewportRoot = viewport.root;
+		this.rebuildFullscreenLayout();
 		this.mountInteractiveTui(this.renderer, [
 			this.documentContainer,
 			this.pendingMessagesContainer,
@@ -918,7 +958,7 @@ export class InteractiveMode {
 		this.ui.setFocus(this.editor);
 
 		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
-		this.ui.start();
+		this.startInteractiveTuiWithFallback();
 		this.isInitialized = true;
 
 		await this.themeController.applyFromSettings();
@@ -962,16 +1002,19 @@ export class InteractiveMode {
 				"dim",
 				`Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`,
 			);
-			const onboarding = theme.fg(
-				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
-			);
-			this.builtInHeader = new ExpandableText(
-				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
-				() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
+			const onboarding = [
+				"> omega boot --interactive",
+				"[ok] runtime initialized",
+				"[ok] extensions online",
+				"> system ready_",
+			].join("\n");
+			this.builtInHeader = new StartupHeader(
+				this.ui,
+				`${logo}\n${compactInstructions}\n${compactOnboarding}`,
+				`${logo}\n${expandedInstructions}`,
+				onboarding,
+				(value) => theme.fg("dim", value),
 				this.getStartupExpansionState(),
-				1,
-				0,
 			);
 
 			// Setup UI layout
@@ -1059,7 +1102,7 @@ export class InteractiveMode {
 		}
 
 		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
+		checkForNewPiVersion(VERSION).then((newRelease) => {
 			if (newRelease) {
 				// this.showNewVersionNotification(newRelease);
 			}
@@ -1682,6 +1725,7 @@ export class InteractiveMode {
 			expandedBody = collapsedBody,
 			color: ThemeColor = "mdHeading",
 		): void => {
+			if (name === "Context" || name === "Skills") return;
 			const section = new ExpandableText(
 				() => `${sectionHeader(name, color)}\n${collapsedBody}`,
 				() => `${sectionHeader(name, color)}\n${expandedBody}`,
@@ -1735,7 +1779,6 @@ export class InteractiveMode {
 				...this.session.resourceLoader.getAgentsFiles().agentsFiles,
 			];
 			if (contextFiles.length > 0) {
-				this.loadedResourcesContainer.addChild(new Spacer(1));
 				const contextList = contextFiles
 					.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`))
 					.join("\n");
@@ -2268,6 +2311,7 @@ export class InteractiveMode {
 		this.clearExtensionTerminalInputListeners();
 		this.setExtensionFooter(undefined);
 		this.setExtensionHeader(undefined);
+		this.setExtensionSidebar(undefined);
 		this.clearExtensionWidgets();
 		this.footerDataProvider.clearExtensionStatuses();
 		this.footer.invalidate();
@@ -2354,8 +2398,17 @@ export class InteractiveMode {
 	 * Set a custom header component, or restore the built-in header.
 	 */
 	private setExtensionHeader(factory: ((tui: TUI, thm: Theme) => Component & { dispose?(): void }) | undefined): void {
+		const changeToken = ++this.headerChangeToken;
 		// Header may not be initialized yet if called during early initialization
 		if (!this.builtInHeader) {
+			return;
+		}
+		if (factory && this.builtInHeader instanceof StartupHeader && !this.builtInHeader.isComplete) {
+			void this.builtInHeader.whenComplete().then(() => {
+				setTimeout(() => {
+					if (changeToken === this.headerChangeToken && this.isInitialized) this.setExtensionHeader(factory);
+				}, 250);
+			});
 			return;
 		}
 
@@ -2392,6 +2445,45 @@ export class InteractiveMode {
 		}
 
 		this.ui.requestRender();
+	}
+
+	private rebuildFullscreenLayout(): void {
+		if (!this.chatViewportRoot) return;
+		this.fullscreenLayoutRoot = createChatViewportRoot(
+			this.chatViewportRoot,
+			this.customSidebar
+				? {
+						component: this.customSidebar,
+						...this.customSidebarOptions,
+					}
+				: undefined,
+		);
+		if (TuiLayouts.isViewportTUI(this.renderer)) {
+			this.renderer.setLayoutRoot(this.fullscreenLayoutRoot);
+		}
+		this.ui.requestRender();
+	}
+
+	private setExtensionSidebar(
+		factory:
+			| ((tui: TUI, thm: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
+			| undefined,
+		options?: ExtensionSidebarOptions,
+	): void {
+		this.customSidebar?.dispose?.();
+		this.customSidebar = undefined;
+
+		if (factory) {
+			this.customSidebarOptions = {
+				width: Math.max(1, Math.floor(options?.width ?? 44)),
+				side: options?.side ?? "right",
+				minTerminalWidth: Math.max(1, Math.floor(options?.minTerminalWidth ?? 100)),
+				minTerminalHeight: Math.max(1, Math.floor(options?.minTerminalHeight ?? 18)),
+			};
+			this.customSidebar = factory(this.ui, theme, this.footerDataProvider);
+		}
+
+		this.rebuildFullscreenLayout();
 	}
 
 	private addExtensionTerminalInputListener(
@@ -2455,6 +2547,7 @@ export class InteractiveMode {
 			setWidget: (key, content, options) => this.setExtensionWidget(key, content, options),
 			setFooter: (factory) => this.setExtensionFooter(factory),
 			setHeader: (factory) => this.setExtensionHeader(factory),
+			setSidebar: (factory, options) => this.setExtensionSidebar(factory, options),
 			setTitle: (title) => this.ui.terminal.setTitle(title),
 			custom: (factory, options) => this.showExtensionCustom(factory, options),
 			pasteToEditor: (text) => this.editor.handleInput(`\x1b[200~${text}\x1b[201~`),
@@ -6383,6 +6476,12 @@ export class InteractiveMode {
 		const followUp = this.getAppKeyDisplay("app.message.followUp");
 		const dequeue = this.getAppKeyDisplay("app.message.dequeue");
 		const pasteImage = this.getAppKeyDisplay("app.clipboard.pasteImage");
+		const focusSidebar = this.getAppKeyDisplay("app.sidebar.focus");
+		const switchSidebarPanel = this.getAppKeyDisplay("app.sidebar.switchPanel");
+		const previousSidebarTab = this.getAppKeyDisplay("app.sidebar.previousTab");
+		const nextSidebarTab = this.getAppKeyDisplay("app.sidebar.nextTab");
+		const toggleSidebarArt = this.getAppKeyDisplay("app.sidebar.toggleArt");
+		const leaveSidebar = this.getEditorKeyDisplay("tui.select.cancel");
 
 		let hotkeys = `
 **Navigation**
@@ -6430,6 +6529,17 @@ export class InteractiveMode {
 | \`/\` | Slash commands |
 | \`!\` | Run bash command |
 | \`!!\` | Run bash command (excluded from context) |
+`;
+		hotkeys += `
+**Sidebar (fullscreen)**
+| Key | Action |
+|-----|--------|
+| \`${focusSidebar}\` | Focus sidebar / return to editor |
+| \`${switchSidebarPanel}\` | Switch between tabs and animation panels (sidebar focused) |
+| \`${tab}\` | Next tab or animation in the focused sidebar panel |
+| \`${previousSidebarTab}\` / \`${nextSidebarTab}\` | Previous / next sidebar tab |
+| \`${toggleSidebarArt}\` | Expand / collapse animation (animation panel focused) |
+| \`${leaveSidebar}\` | Leave sidebar |
 `;
 
 		// Add extension-registered shortcuts
@@ -6634,6 +6744,9 @@ export class InteractiveMode {
 		this.clearStatusIndicator();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
+		this.setExtensionSidebar(undefined);
+		this.headerChangeToken++;
+		if (this.builtInHeader instanceof StartupHeader) this.builtInHeader.dispose();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
 		if (this.unsubscribe) {
