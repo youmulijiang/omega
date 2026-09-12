@@ -1,5 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Key,
+	matchesKey,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import { CURRENT_MODEL_SELECTION, defaultFusionModelConfig } from "../core/fusion/config.ts";
 import type { FusionModelConfigV1, FusionModelSelection } from "../core/fusion/types.ts";
 
@@ -124,6 +131,23 @@ export class FusionModelSelector implements Component {
 		if (this.saving) return;
 		if (this.mode === "slots") this.handleSlotInput(data);
 		else this.handleChoiceInput(data);
+	}
+
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (this.saving || event.type !== "wheel" || !event.wheelDelta) return undefined;
+		const delta = event.wheelDelta < 0 ? -1 : 1;
+		if (this.mode === "slots") {
+			const next = Math.max(0, Math.min(FUSION_MODEL_SLOT_IDS.length - 1, this.selectedSlot + delta));
+			if (next === this.selectedSlot) return { handled: true, render: false };
+			this.selectedSlot = next;
+		} else {
+			const maximum = Math.max(0, this.filteredChoices().length - 1);
+			const next = Math.max(0, Math.min(maximum, this.selectedChoice + delta));
+			if (next === this.selectedChoice) return { handled: true, render: false };
+			this.selectedChoice = next;
+		}
+		this.changed();
+		return { handled: true };
 	}
 
 	invalidate(): void {

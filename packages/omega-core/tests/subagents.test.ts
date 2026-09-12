@@ -20,6 +20,7 @@ import {
 	DEFAULT_SUBAGENT_RUN_TIMEOUT_MS,
 	mapConcurrent,
 	processSubagentJsonLine,
+	resolvePiSpawn,
 	resolveRunTimeoutMs,
 } from "../src/subagents/runner.ts";
 import { readSubagentSettings, writeSubagentSettings } from "../src/subagents/settings.ts";
@@ -186,7 +187,22 @@ describe("Omega subagent integration", () => {
 		expect(treeSelection).toBe(0);
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
 		expect(viewer.render(100).at(-1)).toContain("╰");
-		viewer.handleInput("down");
+		expect(
+			viewer.handleMouse({
+				type: "wheel",
+				button: "none",
+				x: 1,
+				y: 4,
+				screenX: 1,
+				screenY: 4,
+				width: 100,
+				height: 30,
+				shift: false,
+				alt: false,
+				ctrl: false,
+				wheelDelta: 3,
+			}),
+		).toEqual({ handled: true });
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
 		viewer.handleInput("tab");
 		expect(treeSelection).toBe(1);
@@ -407,6 +423,37 @@ describe("Omega subagent integration", () => {
 				"/tmp/advisor.md",
 			]),
 		);
+	});
+
+	it("preserves the source loader when spawning a TypeScript Omega child", () => {
+		const sourceCli = path.resolve("packages/omega-core/src/cli.ts");
+		expect(
+			resolvePiSpawn({
+				execPath: "C:\\nodejs\\node.exe",
+				argv: ["C:\\nodejs\\node.exe", sourceCli],
+				execArgv: ["--import", "file:///workspace/node_modules/tsx/dist/loader.mjs"],
+			}),
+		).toEqual({
+			command: "C:\\nodejs\\node.exe",
+			prefixArgs: [
+				"--import",
+				"file:///workspace/node_modules/tsx/dist/loader.mjs",
+				sourceCli,
+				"--mode",
+				"rpc",
+			],
+		});
+	});
+
+	it("does not copy parent Node flags into a built JavaScript child", () => {
+		const builtCli = path.resolve("packages/omega-core/dist/cli.js");
+		expect(
+			resolvePiSpawn({
+				execPath: "C:\\nodejs\\node.exe",
+				argv: ["C:\\nodejs\\node.exe", builtCli],
+				execArgv: ["--inspect"],
+			}),
+		).toEqual({ command: "C:\\nodejs\\node.exe", prefixArgs: [builtCli, "--mode", "rpc"] });
 	});
 
 	it("uses call model before agent and parent model", () => {

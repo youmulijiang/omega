@@ -1,5 +1,12 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	type TUI,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import type {
 	WorkflowExecutionNode,
 	WorkflowExecutionStatus,
@@ -136,6 +143,22 @@ export class WorkflowStatusView implements Component {
 			this.selectedId = agents[(current + 1) % agents.length]?.node.id;
 			this.tui.requestRender();
 		}
+	}
+
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "wheel" || !event.wheelDelta) return undefined;
+		const agents = selectableAgents(this.snapshot);
+		if (agents.length === 0) return { handled: true, render: false };
+		const current = Math.max(
+			0,
+			agents.findIndex((entry) => entry.node.id === this.selectedId),
+		);
+		const delta = event.wheelDelta < 0 ? -1 : 1;
+		const next = Math.max(0, Math.min(agents.length - 1, current + delta));
+		if (next === current) return { handled: true, render: false };
+		this.selectedId = agents[next]?.node.id;
+		this.tui.requestRender();
+		return { handled: true };
 	}
 
 	invalidate(): void {}

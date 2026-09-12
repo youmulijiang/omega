@@ -529,7 +529,20 @@ describe("workflow TUI display", () => {
 			done,
 		);
 		expect(view.render(100).join("\n")).toContain("first output");
-		view.handleInput("down");
+		view.handleMouse({
+			type: "wheel",
+			button: "none",
+			x: 1,
+			y: 1,
+			screenX: 1,
+			screenY: 1,
+			width: 100,
+			height: 30,
+			shift: false,
+			alt: false,
+			ctrl: false,
+			wheelDelta: 3,
+		});
 		expect(view.render(100).join("\n")).toContain("second output");
 		expect(requestRender).toHaveBeenCalled();
 		view.dispose();

@@ -1,7 +1,15 @@
 import { existsSync } from "node:fs";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatSize } from "@earendil-works/pi-coding-agent";
-import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	matchesKey,
+	type TUI,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import {
 	type BgTaskSnapshot,
 	boundedRead,
@@ -271,6 +279,24 @@ export class BackgroundTasksManager implements Component {
 			return;
 		}
 		this.handleListInput(data);
+	}
+
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "wheel" || !event.wheelDelta) return undefined;
+		const delta = event.wheelDelta < 0 ? -1 : 1;
+		if (this.mode === "detail") {
+			this.scrollDetail(delta);
+			return { handled: true, render: false };
+		}
+
+		const tasks = this.currentTasks();
+		if (tasks.length === 0) return { handled: true, render: false };
+		const next = Math.max(0, Math.min(tasks.length - 1, this.selectedIndex + delta));
+		if (next === this.selectedIndex) return { handled: true, render: false };
+		this.selectedIndex = next;
+		this.ensureSelectionVisible();
+		this.tui.requestRender();
+		return { handled: true };
 	}
 
 	render(width: number): string[] {

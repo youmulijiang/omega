@@ -86,14 +86,21 @@ export function getUnexpectedSignalFailure(
  * Spawn the current Omega entry point so every child receives Omega's internal
  * modules instead of bypassing them through Pi's bare RPC entry point.
  */
-export function resolvePiSpawn(): { command: string; prefixArgs: string[] } {
-	const isNode = /[\\/]node(?:\.exe)?$/i.test(process.execPath);
-	const currentScript = process.argv[1];
+export interface PiSpawnRuntime {
+	execPath: string;
+	argv: readonly string[];
+	execArgv: readonly string[];
+}
+
+export function resolvePiSpawn(runtime: PiSpawnRuntime = process): { command: string; prefixArgs: string[] } {
+	const isNode = /[\\/]node(?:\.exe)?$/i.test(runtime.execPath);
+	const currentScript = runtime.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
 	if (isNode && currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, prefixArgs: [currentScript, "--mode", "rpc"] };
+		const sourceLoaderArgs = /\.[cm]?tsx?$/i.test(currentScript) ? runtime.execArgv : [];
+		return { command: runtime.execPath, prefixArgs: [...sourceLoaderArgs, currentScript, "--mode", "rpc"] };
 	}
-	if (!isNode) return { command: process.execPath, prefixArgs: ["--mode", "rpc"] };
+	if (!isNode) return { command: runtime.execPath, prefixArgs: ["--mode", "rpc"] };
 	return { command: "omega", prefixArgs: ["--mode", "rpc"] };
 }
 

@@ -14,6 +14,8 @@ import {
 	Markdown,
 	Text,
 	type TUI,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
 	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
@@ -468,6 +470,15 @@ export class SubagentConversationView implements Component {
 			this.editor.handleInput(data);
 		}
 		this.tui.requestRender();
+	}
+
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "wheel" || !event.wheelDelta) return undefined;
+		const next = Math.max(0, this.scrollOffset + (event.wheelDelta < 0 ? -1 : 1));
+		if (next === this.scrollOffset) return { handled: true, render: false };
+		this.scrollOffset = next;
+		this.tui.requestRender();
+		return { handled: true };
 	}
 
 	dispose(): void {

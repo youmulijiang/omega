@@ -1,16 +1,40 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import type { TuiMouseEvent } from "@earendil-works/pi-tui";
 import { formatBashCallHighlighted, highlightBashCommand } from "../src/ui/bash-highlight.ts";
 import { loadToolboxConfig } from "../src/ui/toolbox-config.ts";
-import { collapseToolboxContent, stripBackgroundFills } from "../src/ui/toolbox-frame.ts";
+import { collapseToolboxContent, patchToolBoxFrames, stripBackgroundFills } from "../src/ui/toolbox-frame.ts";
 import type { ToolboxTheme } from "../src/ui/toolbox-theme.ts";
 
 const plainTheme = {
 	fg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 } satisfies ToolboxTheme;
+
+beforeAll(() => {
+	initTheme("dark", false);
+	patchToolBoxFrames();
+});
+
+function click(width: number, height: number, x: number, y: number): TuiMouseEvent {
+	return {
+		type: "click",
+		button: "left",
+		x,
+		y,
+		screenX: x,
+		screenY: y,
+		width,
+		height,
+		shift: false,
+		alt: false,
+		ctrl: false,
+		clickCount: 1,
+	};
+}
 
 describe("toolbox UI", () => {
 	it("highlights command positions, flags, variables, strings, and operators", () => {
@@ -52,6 +76,58 @@ describe("toolbox UI", () => {
 	it("shows all toolbox content when expanded", () => {
 		const lines = ["one", "two", "three", "four", "five", "six"];
 		expect(collapseToolboxContent(lines, true, plainTheme)).toBe(lines);
+	});
+
+	it("expands and collapses toolbox content when its body is clicked", () => {
+		const component = new ToolExecutionComponent(
+			"demo",
+			"toolbox-click",
+			{},
+			{},
+			undefined,
+			{ requestRender: () => undefined } as never,
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "one\ntwo\nthree\nfour\nfive\nsix\nseven" }],
+				isError: false,
+			},
+			false,
+		);
+
+		const width = 80;
+		let lines = component.render(width);
+		expect(lines.join("\n")).not.toContain("seven");
+		expect(component.handleMouse(click(width, lines.length, 2, 2))).toEqual({ handled: true });
+
+		lines = component.render(width);
+		expect(lines.join("\n")).toContain("seven");
+		expect(component.handleMouse(click(width, lines.length, 2, 2))).toEqual({ handled: true });
+		expect(component.render(width).join("\n")).not.toContain("seven");
+	});
+
+	it("does not expand when the toolbox border is clicked", () => {
+		const component = new ToolExecutionComponent(
+			"demo",
+			"toolbox-border-click",
+			{},
+			{},
+			undefined,
+			{ requestRender: () => undefined } as never,
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "one\ntwo\nthree\nfour\nfive\nsix\nseven" }],
+				isError: false,
+			},
+			false,
+		);
+		const width = 80;
+		const lines = component.render(width);
+		expect(component.handleMouse(click(width, lines.length, 2, 1))).toBeUndefined();
+		expect(component.render(width).join("\n")).not.toContain("seven");
 	});
 
 	it("loads typed settings with defaults for invalid values", () => {

@@ -22,6 +22,23 @@ function task(status: BackgroundTaskForUi["status"] = "running"): BackgroundTask
 	};
 }
 
+function wheel(delta: number) {
+	return {
+		type: "wheel" as const,
+		button: "none" as const,
+		x: 1,
+		y: 1,
+		screenX: 1,
+		screenY: 1,
+		width: 100,
+		height: 20,
+		shift: false,
+		alt: false,
+		ctrl: false,
+		wheelDelta: delta,
+	};
+}
+
 function createManager(tasks: BackgroundTaskForUi[]) {
 	let displayedTaskId: string | undefined;
 	const setDisplayedTask = vi.fn((selected: BackgroundTaskForUi | undefined) => {
@@ -48,6 +65,19 @@ function createManager(tasks: BackgroundTaskForUi[]) {
 }
 
 describe("BackgroundTasksManager output selection", () => {
+	it("moves the task selection with the mouse wheel", () => {
+		const first = task();
+		const second = { ...task(), id: "task-two", name: "second task", startTime: first.startTime - 1 };
+		const { manager } = createManager([first, second]);
+		try {
+			expect(manager.render(100).join("\n")).toContain("›    stream server");
+			expect(manager.handleMouse(wheel(3))).toEqual({ handled: true });
+			expect(manager.render(100).join("\n")).toContain("›    second task");
+		} finally {
+			manager.dispose();
+		}
+	});
+
 	it("toggles the selected running task output", () => {
 		const running = task();
 		const { manager, setDisplayedTask } = createManager([running]);

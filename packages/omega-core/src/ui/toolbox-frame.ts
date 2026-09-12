@@ -1,5 +1,5 @@
 import { keyText, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type TuiMouseEvent, type TuiMouseEventResult, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getToolboxTheme, type ToolboxTheme } from "./toolbox-theme.ts";
 
 const BACKGROUND_FILL = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/g;
@@ -67,11 +67,14 @@ interface ToolBoxInternals {
 	imageSpacers: Renderable[];
 	hasRendererDefinition(): boolean;
 	getRenderShell(): "default" | "self";
+	setExpanded(expanded: boolean): void;
 	__omegaFrameCache?: { width: number; fingerprint: string; color: string; expanded: boolean; output: string[] };
+	__omegaFrameMouseLayout?: { width: number; contentHeight: number };
 }
 
 type ToolBoxPrototype = ToolBoxInternals & {
 	render(width: number): string[];
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined;
 	__omegaToolboxFramed?: boolean;
 };
 
@@ -81,6 +84,35 @@ export function patchToolBoxFrames(collapseAnchor = true): void {
 	if (prototype.__omegaToolboxFramed) return;
 	prototype.__omegaToolboxFramed = true;
 	const originalRender = prototype.render;
+	const originalHandleMouse = prototype.handleMouse;
+
+	prototype.handleMouse = function patchedToolBoxMouse(
+		this: ToolBoxInternals,
+		event: TuiMouseEvent,
+	): TuiMouseEventResult | undefined {
+		if (!getToolboxTheme()) return originalHandleMouse.call(this, event);
+		// Wheel events must remain unhandled so the enclosing chat ScrollView can
+		// consume them. Overlay dialogs handle their own wheels separately.
+		if (event.type === "wheel") return undefined;
+		const layout = this.__omegaFrameMouseLayout;
+		if (
+			this.result &&
+			layout?.width === event.width &&
+			event.type === "click" &&
+			event.button === "left" &&
+			event.x > 0 &&
+			event.x < event.width - 1 &&
+			event.y >= 2 &&
+			event.y < 2 + layout.contentHeight
+		) {
+			this.setExpanded(!this.expanded);
+			return { handled: true };
+		}
+		// The patched frame no longer shares the original container's vertical
+		// geometry, so do not forward clicks that landed on its padding or border.
+		if (layout?.width === event.width && event.type === "click") return undefined;
+		return originalHandleMouse.call(this, event);
+	};
 
 	prototype.render = function patchedToolBoxRender(this: ToolBoxInternals, width: number): string[] {
 		const theme = getToolboxTheme();
@@ -115,6 +147,7 @@ export function patchToolBoxFrames(collapseAnchor = true): void {
 			const innerWidth = frameWidth - 2;
 			const border = (text: string) => theme.fg(color, text);
 			const output: string[] = [""];
+			this.__omegaFrameMouseLayout = { width: frameWidth, contentHeight: content.length };
 			if (content.length > 0) {
 				output.push(border(`╭${"─".repeat(innerWidth)}╮`));
 				for (const line of content)
