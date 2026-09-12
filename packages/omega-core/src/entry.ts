@@ -4,6 +4,7 @@ import { registerBackground } from "./background/index.ts";
 import { registerBtw } from "./btw/index.ts";
 import { registerChrome } from "./chrome/index.ts";
 import { registerCommands } from "./commands/index.ts";
+import { registerCosts } from "./costs/index.ts";
 import { registerFork } from "./fork/index.ts";
 import { registerGoal } from "./goal/index.ts";
 import { registerInit } from "./init/index.ts";
@@ -31,6 +32,7 @@ export default function omegaExtension(pi: ExtensionAPI): void {
 	registerBtw(omega);
 	registerTodo(omega);
 	registerCommands(omega);
+	registerCosts(omega);
 	registerFork(omega);
 	registerGoal(omega);
 	registerInit(omega);
