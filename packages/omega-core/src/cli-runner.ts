@@ -2,6 +2,7 @@ import { type Extension, main } from "@earendil-works/pi-coding-agent";
 import omegaExtension from "./entry.ts";
 import { formatInitResult, initializeOmegaWorkspace } from "./init/index.ts";
 import { initializeKnowledgeDirectory } from "./knowledge/index.ts";
+import { OMEGA_VERSION } from "./version.ts";
 import { initializeUserWorkflowsDirectory } from "./workflows/registry.ts";
 
 const EXTERNAL_TOOLBOX_PATH = /(?:^|\/)node_modules\/@andy8647\/pi-toolbox(?:\/|$)/i;
@@ -25,6 +26,7 @@ export async function runOmegaCli(args: string[]): Promise<void> {
 	}
 
 	process.env.PI_CODING_AGENT = "true";
+	process.env.OMEGA_VERSION = OMEGA_VERSION;
 	process.env.AI_AGENT = "pi";
 	process.emitWarning = (() => {}) as typeof process.emitWarning;
 

@@ -20,6 +20,7 @@ import {
 	smitheryProxyConfig,
 } from "./smithery-connect.ts";
 import { type SmitherySearchResult, searchSmitheryRegistry, smitheryConfigName } from "./smithery-registry.ts";
+import { MCP_STATUS_CHANNEL } from "./status-events.ts";
 
 type McpAction = "status" | "list_tools" | "call" | "reconnect" | "authenticate" | "logout";
 
@@ -297,7 +298,13 @@ export function registerMcp(omega: OmegaAPI): void {
 	const getManager = async (currentCwd: string): Promise<OmegaMcpManager> => {
 		if (!manager || cwd !== currentCwd) {
 			await manager?.close();
-			manager = new OmegaMcpManager(currentCwd);
+			manager = new OmegaMcpManager(currentCwd, {
+				onStateChange: (states) =>
+					omega.events.emit(
+						MCP_STATUS_CHANNEL,
+						states.map(({ name, status, error }) => ({ name, status, ...(error ? { error } : {}) })),
+					),
+			});
 			cwd = currentCwd;
 			await manager.reload();
 		}

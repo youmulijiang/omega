@@ -25,6 +25,7 @@ const RECONNECT_BURST_LIMIT = 5;
 export interface OmegaMcpManagerOptions {
 	toolCache?: OmegaMcpToolCache;
 	oauthStore?: OmegaOAuthStore;
+	onStateChange?: (states: readonly McpServerState[]) => void;
 }
 
 function isEnabled(config: McpServerConfig): boolean {
@@ -70,6 +71,7 @@ export class OmegaMcpManager {
 	private readonly cwd: string;
 	private readonly toolCache: OmegaMcpToolCache;
 	private readonly oauthStore: OmegaOAuthStore;
+	private readonly onStateChange?: (states: readonly McpServerState[]) => void;
 	private readonly connections = new Map<string, McpConnection>();
 	private readonly states = new Map<string, McpServerState>();
 	private readonly pendingConnections = new Map<string, Promise<McpServerState>>();
@@ -82,6 +84,11 @@ export class OmegaMcpManager {
 		this.cwd = cwd;
 		this.toolCache = options.toolCache ?? new OmegaMcpToolCache();
 		this.oauthStore = options.oauthStore ?? new OmegaOAuthStore();
+		this.onStateChange = options.onStateChange;
+	}
+
+	private notifyStateChange(): void {
+		this.onStateChange?.(this.getStates());
 	}
 
 	async reload(connect = true): Promise<void> {
@@ -102,6 +109,7 @@ export class OmegaMcpManager {
 				reconnectAttempts: 0,
 			});
 		}
+		this.notifyStateChange();
 		if (connect) await this.connectAll();
 	}
 
@@ -140,6 +148,7 @@ export class OmegaMcpManager {
 		await this.closeConnection(name);
 		state.status = isEnabled(state.config) ? "disconnected" : "disabled";
 		state.error = undefined;
+		this.notifyStateChange();
 		return this.connect(name);
 	}
 	/**
@@ -239,11 +248,13 @@ export class OmegaMcpManager {
 		) {
 			state.status = "needs-auth";
 			state.error = "OAuth is only supported for HTTP servers";
+			this.notifyStateChange();
 			return state;
 		}
 
 		state.status = "connecting";
 		state.error = undefined;
+		this.notifyStateChange();
 		const connectionEpoch = this.epoch;
 		let client: Client | undefined;
 		try {
@@ -269,7 +280,10 @@ export class OmegaMcpManager {
 				this.handleConnectionLoss(name, connection, new Error("Connection closed"));
 			};
 			client.onerror = (error) => {
-				if (this.connections.get(name)?.client === client) state.error = formatError(error);
+				if (this.connections.get(name)?.client === client) {
+					state.error = formatError(error);
+					this.notifyStateChange();
+				}
 			};
 			await client.connect(transport, mcpRequestOptions(timeout));
 			const listed = await client.listTools(undefined, mcpRequestOptions(timeout));
@@ -281,6 +295,7 @@ export class OmegaMcpManager {
 			state.status = "connected";
 			state.error = undefined;
 			state.reconnectAttempts = 0;
+			this.notifyStateChange();
 			await this.publishTools(name, state.config, listed.tools);
 			return state;
 		} catch (error) {
@@ -291,6 +306,7 @@ export class OmegaMcpManager {
 				!hasStaticAuth && (error instanceof UnauthorizedError || /401|403|unauthorized|oauth/i.test(message));
 			state.status = needsAuth ? "needs-auth" : "error";
 			state.error = needsAuth && error instanceof UnauthorizedError ? "OAuth authorization required" : message;
+			this.notifyStateChange();
 			if (state.status !== "needs-auth") this.scheduleReconnect(name);
 			throw error;
 		}
@@ -349,6 +365,7 @@ export class OmegaMcpManager {
 		if (!state) return;
 		state.tools = [...tools].sort((left, right) => left.name.localeCompare(right.name));
 		state.toolSource = "live";
+		this.notifyStateChange();
 		await this.toolCache.set(name, config, state.tools).catch(() => undefined);
 	}
 
@@ -359,6 +376,7 @@ export class OmegaMcpManager {
 		if (!state || this.closed || !isEnabled(state.config)) return;
 		state.status = "disconnected";
 		state.error = formatError(error);
+		this.notifyStateChange();
 		this.scheduleReconnect(name);
 	}
 
@@ -374,6 +392,7 @@ export class OmegaMcpManager {
 		if (history.length >= RECONNECT_BURST_LIMIT) {
 			state.status = "error";
 			state.error = "Automatic reconnect paused after repeated failures; use /mcp reconnect";
+			this.notifyStateChange();
 			this.reconnectHistory.set(name, history);
 			return;
 		}
@@ -381,6 +400,7 @@ export class OmegaMcpManager {
 		if (attempt > options.maxRetries) {
 			state.status = "error";
 			state.error = `Automatic reconnect exhausted after ${options.maxRetries} attempts`;
+			this.notifyStateChange();
 			return;
 		}
 		state.reconnectAttempts = attempt;

@@ -6,7 +6,7 @@ import { updateTodoUI } from "./render.ts";
 import { applyTodoMutation, cloneTodoState, createTodoState, isTodoState } from "./state.ts";
 import { type TodoAction, type TodoDetails, type TodoItem, TodoParams, type TodoState } from "./types.ts";
 
-const TODO_STATE_ENTRY = "omega-todo-state";
+export const TODO_STATE_ENTRY = "omega-todo-state";
 export const TODO_TOGGLE_SHORTCUT = "alt+o";
 export const TODO_CONTINUE_CURRENT = "Continue current todo";
 export const TODO_START_NEW = "Start a new todo";

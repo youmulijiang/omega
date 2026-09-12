@@ -1,0 +1,348 @@
+export interface GeoPoint {
+	readonly lon: number;
+	readonly lat: number;
+}
+
+export interface ContinentShape {
+	readonly id: "AS" | "EU" | "AF" | "NA" | "SA" | "OC";
+	readonly name: string;
+	readonly label: GeoPoint;
+	readonly polygon: readonly GeoPoint[];
+}
+
+/** Deliberately simplified offline outlines: readable at terminal resolution, not cartographic data. */
+export const SIDEBAR_CONTINENTS: readonly ContinentShape[] = [
+	{
+		id: "NA",
+		name: "North America",
+		label: { lon: -105, lat: 45 },
+		polygon: [
+			{ lon: -168, lat: 70 },
+			{ lon: -125, lat: 72 },
+			{ lon: -60, lat: 58 },
+			{ lon: -52, lat: 42 },
+			{ lon: -82, lat: 24 },
+			{ lon: -100, lat: 17 },
+			{ lon: -118, lat: 28 },
+			{ lon: -150, lat: 55 },
+		],
+	},
+	{
+		id: "SA",
+		name: "South America",
+		label: { lon: -60, lat: -18 },
+		polygon: [
+			{ lon: -82, lat: 12 },
+			{ lon: -52, lat: 10 },
+			{ lon: -35, lat: -5 },
+			{ lon: -48, lat: -28 },
+			{ lon: -67, lat: -55 },
+			{ lon: -76, lat: -20 },
+		],
+	},
+	{
+		id: "EU",
+		name: "Europe",
+		label: { lon: 16, lat: 53 },
+		polygon: [
+			{ lon: -11, lat: 36 },
+			{ lon: 12, lat: 36 },
+			{ lon: 40, lat: 43 },
+			{ lon: 60, lat: 58 },
+			{ lon: 31, lat: 71 },
+			{ lon: -8, lat: 58 },
+		],
+	},
+	{
+		id: "AF",
+		name: "Africa",
+		label: { lon: 20, lat: 5 },
+		polygon: [
+			{ lon: -18, lat: 35 },
+			{ lon: 14, lat: 37 },
+			{ lon: 52, lat: 12 },
+			{ lon: 42, lat: -20 },
+			{ lon: 18, lat: -35 },
+			{ lon: -10, lat: 2 },
+		],
+	},
+	{
+		id: "AS",
+		name: "Asia",
+		label: { lon: 92, lat: 45 },
+		polygon: [
+			{ lon: 34, lat: 36 },
+			{ lon: 48, lat: 62 },
+			{ lon: 95, lat: 77 },
+			{ lon: 169, lat: 66 },
+			{ lon: 151, lat: 42 },
+			{ lon: 122, lat: 18 },
+			{ lon: 102, lat: 5 },
+			{ lon: 73, lat: 9 },
+			{ lon: 57, lat: 25 },
+		],
+	},
+	{
+		id: "OC",
+		name: "Oceania",
+		label: { lon: 136, lat: -25 },
+		polygon: [
+			{ lon: 110, lat: -11 },
+			{ lon: 154, lat: -10 },
+			{ lon: 160, lat: -27 },
+			{ lon: 146, lat: -44 },
+			{ lon: 113, lat: -35 },
+		],
+	},
+] as const;
+
+const DEG_TO_RAD = Math.PI / 180;
+const TAU = Math.PI * 2;
+const GLOBE_PERIOD_MS = 30_000;
+
+function normalizeLongitude(lon: number): number {
+	let normalized = lon;
+	while (normalized > 180) normalized -= 360;
+	while (normalized < -180) normalized += 360;
+	return normalized;
+}
+
+function pointInPolygon(lon: number, lat: number, polygon: readonly GeoPoint[]): boolean {
+	let inside = false;
+	for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+		const a = polygon[current]!;
+		const b = polygon[previous]!;
+		const crosses = a.lat > lat !== b.lat > lat;
+		if (crosses && lon < ((b.lon - a.lon) * (lat - a.lat)) / (b.lat - a.lat) + a.lon) inside = !inside;
+	}
+	return inside;
+}
+
+function continentAt(lon: number, lat: number): ContinentShape | undefined {
+	return SIDEBAR_CONTINENTS.find((continent) => pointInPolygon(lon, lat, continent.polygon));
+}
+
+function createGrid(width: number, height: number, fill = " "): string[][] {
+	return Array.from({ length: height }, () => Array.from({ length: width }, () => fill));
+}
+
+function gridLines(grid: string[][]): string[] {
+	return grid.map((row) => row.join(""));
+}
+
+function writeLabel(grid: string[][], x: number, y: number, label: string): void {
+	const row = grid[Math.round(y)];
+	if (!row) return;
+	const start = Math.round(x - label.length / 2);
+	for (let index = 0; index < label.length; index++) {
+		const column = start + index;
+		if (column >= 0 && column < row.length) row[column] = label[index]!;
+	}
+}
+
+export function globeRotation(timeMs: number): number {
+	return ((timeMs % GLOBE_PERIOD_MS) / GLOBE_PERIOD_MS) * TAU;
+}
+
+export function visibleGlobeLabels(rotation: number): string[] {
+	return SIDEBAR_CONTINENTS.filter((continent) => {
+		const relativeLongitude = normalizeLongitude(continent.label.lon - rotation / DEG_TO_RAD) * DEG_TO_RAD;
+		return Math.cos(continent.label.lat * DEG_TO_RAD) * Math.cos(relativeLongitude) > 0.12;
+	}).map((continent) => continent.id);
+}
+
+/** Render a terminal-aspect-corrected orthographic globe. */
+export function renderAsciiGlobe(width: number, height: number, timeMs: number): string[] {
+	const safeWidth = Math.max(1, Math.floor(width));
+	const safeHeight = Math.max(1, Math.floor(height));
+	const grid = createGrid(safeWidth, safeHeight);
+	const radiusY = Math.max(1, (safeHeight - 1) / 2);
+	const radiusX = Math.max(1, Math.min((safeWidth - 1) / 2, radiusY * 2));
+	const centerX = (safeWidth - 1) / 2;
+	const centerY = (safeHeight - 1) / 2;
+	const rotation = globeRotation(timeMs);
+	const oceanRamp = "..::";
+	const landRamp = ":+*#";
+
+	for (let y = 0; y < safeHeight; y++) {
+		for (let x = 0; x < safeWidth; x++) {
+			const nx = (x - centerX) / radiusX;
+			const ny = (centerY - y) / radiusY;
+			const radiusSquared = nx * nx + ny * ny;
+			if (radiusSquared > 1) continue;
+
+			const nz = Math.sqrt(Math.max(0, 1 - radiusSquared));
+			const lat = Math.asin(ny) / DEG_TO_RAD;
+			const lon = normalizeLongitude((Math.atan2(nx, nz) + rotation) / DEG_TO_RAD);
+			const light = Math.max(0, Math.min(0.999, (nz * 0.72 - nx * 0.18 + ny * 0.1 + 1) / 2));
+			const ramp = continentAt(lon, lat) ? landRamp : oceanRamp;
+			grid[y]![x] = radiusSquared > 0.92 ? "o" : ramp[Math.floor(light * ramp.length)]!;
+		}
+	}
+
+	for (const continent of SIDEBAR_CONTINENTS) {
+		const latitude = continent.label.lat * DEG_TO_RAD;
+		const relativeLongitude = normalizeLongitude(continent.label.lon - rotation / DEG_TO_RAD) * DEG_TO_RAD;
+		const visibility = Math.cos(latitude) * Math.cos(relativeLongitude);
+		if (visibility <= 0.12) continue;
+		const x = centerX + radiusX * Math.cos(latitude) * Math.sin(relativeLongitude);
+		const y = centerY - radiusY * Math.sin(latitude);
+		writeLabel(grid, x, y, continent.id);
+	}
+
+	return gridLines(grid);
+}
+
+interface MapNode extends GeoPoint {
+	readonly id: string;
+}
+
+const MAP_NODES: readonly MapNode[] = [
+	{ id: "SEA", lon: -122, lat: 47 },
+	{ id: "NYC", lon: -74, lat: 41 },
+	{ id: "SAO", lon: -46, lat: -23 },
+	{ id: "LON", lon: 0, lat: 51 },
+	{ id: "LOS", lon: 3, lat: 7 },
+	{ id: "CPT", lon: 18, lat: -34 },
+	{ id: "BOM", lon: 73, lat: 19 },
+	{ id: "SIN", lon: 104, lat: 1 },
+	{ id: "TYO", lon: 140, lat: 36 },
+	{ id: "SYD", lon: 151, lat: -34 },
+] as const;
+
+const ATTACK_ROUTES: readonly (readonly [number, number])[] = [
+	[0, 7],
+	[8, 1],
+	[3, 2],
+	[6, 0],
+	[7, 3],
+	[1, 5],
+	[9, 4],
+	[2, 8],
+] as const;
+
+function mapPoint(point: GeoPoint, width: number, height: number): { x: number; y: number } {
+	return {
+		x: Math.max(0, Math.min(width - 1, Math.round(((point.lon + 180) / 360) * (width - 1)))),
+		y: Math.max(0, Math.min(height - 1, Math.round(((80 - point.lat) / 140) * (height - 1)))),
+	};
+}
+
+function routePoint(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+	progress: number,
+): { x: number; y: number } {
+	const controlX = (start.x + end.x) / 2;
+	const controlY = Math.max(0, Math.min(start.y, end.y) - Math.max(1, Math.abs(end.x - start.x) * 0.12));
+	const inverse = 1 - progress;
+	return {
+		x: Math.round(inverse * inverse * start.x + 2 * inverse * progress * controlX + progress * progress * end.x),
+		y: Math.round(inverse * inverse * start.y + 2 * inverse * progress * controlY + progress * progress * end.y),
+	};
+}
+
+/** Render a deterministic, offline simulation. It never consumes real network data. */
+export function renderAttackMap(width: number, height: number, timeMs: number, seed = 17): string[] {
+	const safeWidth = Math.max(1, Math.floor(width));
+	const safeHeight = Math.max(1, Math.floor(height));
+	const grid = createGrid(safeWidth, safeHeight);
+
+	for (let y = 0; y < safeHeight; y++) {
+		const lat = 80 - (y / Math.max(1, safeHeight - 1)) * 140;
+		for (let x = 0; x < safeWidth; x++) {
+			const lon = -180 + (x / Math.max(1, safeWidth - 1)) * 360;
+			if (continentAt(lon, lat)) grid[y]![x] = ".";
+		}
+	}
+
+	const tick = Math.floor(timeMs / 1_800);
+	for (let active = 0; active < 3; active++) {
+		const route = ATTACK_ROUTES[(tick + seed + active * 3) % ATTACK_ROUTES.length]!;
+		const start = mapPoint(MAP_NODES[route[0]]!, safeWidth, safeHeight);
+		const end = mapPoint(MAP_NODES[route[1]]!, safeWidth, safeHeight);
+		for (let step = 0; step <= 24; step++) {
+			const point = routePoint(start, end, step / 24);
+			if (grid[point.y]?.[point.x] !== undefined) grid[point.y]![point.x] = ":";
+		}
+		const progress = (((timeMs / 1_800 + active * 0.27) % 1) + 1) % 1;
+		const particle = routePoint(start, end, progress);
+		if (grid[particle.y]?.[particle.x] !== undefined) grid[particle.y]![particle.x] = "*";
+		if (grid[end.y]?.[end.x] !== undefined) grid[end.y]![end.x] = Math.floor(timeMs / 250) % 2 === 0 ? "X" : "o";
+	}
+
+	for (const node of MAP_NODES) {
+		const point = mapPoint(node, safeWidth, safeHeight);
+		if (grid[point.y]?.[point.x] === ".") grid[point.y]![point.x] = "+";
+	}
+	return gridLines(grid);
+}
+
+const TERMINAL_SEQUENCE_LENGTH = 27;
+const HEX_START = 4;
+const HEX_END = 21;
+const RESPONSE_GLYPHS = "0123456789ABCDEF@#$%?~^<>/\\";
+
+function nextNoise(seed: number): number {
+	let value = seed >>> 0;
+	value ^= value << 13;
+	value ^= value >>> 17;
+	value ^= value << 5;
+	return value >>> 0;
+}
+
+function responseNoise(ordinal: number, width: number): string {
+	let seed = (Math.imul(ordinal + 1024, 0x9e3779b1) ^ 0xa5a5a5a5) >>> 0;
+	let value = "[rx] ";
+	while (value.length < width) {
+		seed = nextNoise(seed);
+		value += RESPONSE_GLYPHS[seed % RESPONSE_GLYPHS.length];
+	}
+	return value;
+}
+
+function hexHeader(byteCount: number): string {
+	return `Address   ${Array.from({ length: byteCount }, (_, index) => index.toString(16).toUpperCase().padStart(2, "0")).join(" ")}  ASCII`;
+}
+
+function hexResponse(row: number, byteCount: number, tick: number): string {
+	let seed = (Math.imul(row + 1, 0x45d9f3b) ^ Math.imul(tick + 1, 0x119de1f3)) >>> 0;
+	const bytes: number[] = [];
+	for (let column = 0; column < byteCount; column++) {
+		seed = nextNoise(seed);
+		bytes.push(seed % 7 === 0 ? 0 : seed & 0xff);
+	}
+	const address = (row * byteCount).toString(16).toUpperCase().padStart(8, "0");
+	const hex = bytes.map((byte) => byte.toString(16).toUpperCase().padStart(2, "0")).join(" ");
+	const ascii = bytes.map((byte) => (byte >= 33 && byte <= 126 ? String.fromCharCode(byte) : ".")).join("");
+	return `${address}: ${hex}  |${ascii}|`;
+}
+
+/** A continuous, deterministic command/response stream with simulated hex-editor dumps. */
+export function renderTerminalScene(width: number, height: number, timeMs: number): string[] {
+	const safeWidth = Math.max(1, Math.floor(width));
+	const safeHeight = Math.max(1, Math.floor(height));
+	const step = Math.max(0, Math.floor(timeMs / 700));
+	const byteCount = Math.max(1, Math.min(16, Math.floor((safeWidth - 12) / 4)));
+	const tick = Math.floor(timeMs / 250);
+	const reveal = Math.floor(((timeMs % 700) / 700) * safeWidth);
+	return Array.from({ length: safeHeight }, (_, row) => {
+		const ordinal = step - safeHeight + row + 1;
+		const index = ((ordinal % TERMINAL_SEQUENCE_LENGTH) + TERMINAL_SEQUENCE_LENGTH) % TERMINAL_SEQUENCE_LENGTH;
+		let value: string;
+		if (index === 3) value = hexHeader(byteCount);
+		else if (index >= HEX_START && index <= HEX_END) value = hexResponse(index - HEX_START, byteCount, tick);
+		else if (index === 0) value = "> INITIALIZING GHOST INTERFACE";
+		else if (index === 1) value = "[ok] visual core online // SIMULATION";
+		else if (index === 2) value = "> inspect phantom buffer --view hex";
+		else if (index === 22) value = responseNoise(ordinal, safeWidth);
+		else if (index === 23) value = "> decoding spectral response...";
+		else if (index === 24) value = responseNoise(ordinal, safeWidth);
+		else if (index === 25) value = "[ok] ghost channel stable";
+		else value = "> synchronizing midnight protocol";
+		if (row === safeHeight - 1 && (index < HEX_START || index > HEX_END) && index !== 3) {
+			value = value.slice(0, reveal) + (timeMs % 500 < 250 ? "_" : " ");
+		}
+		return value.slice(0, safeWidth).padEnd(safeWidth, " ");
+	});
+}
