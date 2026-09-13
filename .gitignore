@@ -50,3 +50,4 @@ collect.sh
 .omega/
 .pi/
 packages/agent/docs/extensions/pi-server-artifact/index.md
+plugins/browser-plugin.zip
