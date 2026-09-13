@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createOmegaAPI } from "./api.ts";
 import { registerBackground } from "./background/index.ts";
+import { registerBrowserExtension } from "./browser-extension/index.ts";
 import { registerBtw } from "./btw/index.ts";
 import { registerChrome } from "./chrome/index.ts";
 import { registerCommands } from "./commands/index.ts";
@@ -28,6 +29,7 @@ import { registerWorkflows } from "./workflows/index.ts";
 export default function omegaExtension(pi: ExtensionAPI): void {
 	const omega = createOmegaAPI(pi);
 	registerChrome(omega);
+	registerBrowserExtension(omega);
 	registerBackground(omega);
 	registerBtw(omega);
 	registerTodo(omega);

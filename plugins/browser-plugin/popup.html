@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8" />
+	<title>Omega Browser Bridge</title>
+	<style>
+		:root {
+			color-scheme: light;
+			--border: #ececec;
+			--text: #1a1a1a;
+			--muted: #8f8f8f;
+			--green: #1a7f37;
+			--green-bg: #e2f3e6;
+			--gray-bg: #f4f4f4;
+			--red: #b42318;
+			--red-bg: #fdebe9;
+		}
+		body {
+			font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+			width: 320px;
+			margin: 0;
+			padding: 18px 14px 14px;
+			color: var(--text);
+			background: #fff;
+		}
+		header { text-align: center; margin-bottom: 14px; }
+		header img {
+			width: 52px;
+			height: 52px;
+			border-radius: 15px;
+			background: #000;
+			display: block;
+			margin: 0 auto 8px;
+		}
+		header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+		.card {
+			border: 1px solid var(--border);
+			border-radius: 16px;
+			padding: 14px;
+			box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+		}
+		.status-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin-bottom: 10px;
+		}
+		.pill {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 13px;
+			font-weight: 600;
+			padding: 4px 12px;
+			border-radius: 999px;
+		}
+		.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+		.pill.connected { color: var(--green); background: var(--green-bg); }
+		.pill.reconnecting, .pill.disconnected { color: var(--muted); background: var(--gray-bg); }
+		.pill.error { color: var(--red); background: var(--red-bg); }
+		#gear {
+			border: 1px solid transparent;
+			background: none;
+			padding: 5px;
+			cursor: pointer;
+			color: var(--muted);
+			border-radius: 8px;
+			line-height: 0;
+			display: flex;
+		}
+		#gear:hover { background: var(--gray-bg); color: var(--text); }
+		#gear.open { background: var(--gray-bg); color: var(--text); }
+		.desc { font-size: 13px; margin: 0 0 10px; }
+		#agentList { margin: 0 0 10px; display: none; }
+		#agentList:not(:empty) { display: block; }
+		.agent {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			font-size: 12px;
+			padding: 6px 8px;
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			margin-bottom: 4px;
+			cursor: pointer;
+		}
+		.agent:hover { background: var(--gray-bg); }
+		.agent.selected { border-color: var(--green); }
+		.agent .marker { color: var(--green); font-weight: 700; width: 10px; }
+		.agent .name { font-weight: 600; white-space: nowrap; }
+		.agent .model { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		#lastError { font-size: 12px; color: var(--red); word-break: break-all; margin: 0 0 8px; display: none; }
+		.panel-btn {
+			width: 100%;
+			font-size: 13px;
+			padding: 8px 12px;
+			margin-bottom: 10px;
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			background: #fff;
+			cursor: pointer;
+		}
+		.panel-btn:hover { background: var(--gray-bg); }
+		.version { font-size: 12px; color: var(--muted); margin: 0; }
+		#settings { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+		#settings.open { display: block; }
+		label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+		.port-row { display: flex; gap: 8px; }
+		input {
+			flex: 1;
+			font-size: 13px;
+			padding: 6px 8px;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			box-sizing: border-box;
+			min-width: 0;
+		}
+		button.save {
+			font-size: 13px;
+			padding: 6px 10px;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			background: #fff;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		button.save:hover { background: var(--gray-bg); }
+		.hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+	</style>
+</head>
+<body>
+	<header>
+		<img src="icon.png" alt="Omega" />
+		<h1>Omega</h1>
+	</header>
+	<div class="card">
+		<div class="status-row">
+			<span id="pill" class="pill disconnected"><span class="dot"></span><span id="statusText">…</span></span>
+			<button id="gear" title="设置" aria-label="设置">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="3" />
+					<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+				</svg>
+			</button>
+		</div>
+		<p class="desc">用 Omega 智能体控制 Chrome 浏览器。</p>
+		<div id="agentList"></div>
+		<p id="lastError"></p>
+		<button id="openSidePanel" class="panel-btn">打开侧边栏对话</button>
+		<p class="version" id="version"></p>
+		<div id="settings">
+			<label for="port">桥接端口（留空使用默认 9334-9343 自动探测）</label>
+			<div class="port-row">
+				<input id="port" type="number" min="1" max="65535" placeholder="自动" />
+				<button class="save" id="save">保存并重连</button>
+			</div>
+			<p class="hint">一般无需修改；仅当与其他工具端口冲突时指定单一端口。</p>
+		</div>
+	</div>
+	<script src="popup.js"></script>
+</body>
+</html>

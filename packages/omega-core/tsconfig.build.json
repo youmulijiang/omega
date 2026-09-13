@@ -4,6 +4,6 @@
 		"allowJs": true,
 		"checkJs": false
 	},
-	"include": ["src/entry.ts", "src/cli.ts", "src/cli-runner.ts", "src/bun/**/*.ts", "src/background/extensions/**/*.ts", "src/fork/**/*.js", "src/subagents/**/*.js"],
+	"include": ["src/**/*.ts", "src/**/*.js"],
   "exclude": ["tests/**/*", "**/*.test.ts"]
 }
