@@ -24,6 +24,7 @@ vi.mock("../src/workflows/registry.ts", () => ({
 }));
 
 import { isOmegaCompatibleExtension, runOmegaCli } from "../src/cli-runner.ts";
+import { OMEGA_VERSION } from "../src/version.ts";
 
 const originalTitle = process.title;
 const originalPiCodingAgent = process.env.PI_CODING_AGENT;
@@ -44,6 +45,15 @@ afterEach(() => {
 });
 
 describe("runOmegaCli", () => {
+	it.each(["--version", "-v"])("prints the Omega package version for %s", async (argument) => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await runOmegaCli([argument]);
+
+		expect(log).toHaveBeenCalledWith(OMEGA_VERSION);
+		expect(mainMock).not.toHaveBeenCalled();
+	});
+
 	it("starts the coding agent with omega-core as a hidden inline extension", async () => {
 		await runOmegaCli(["--offline", "--help"]);
 

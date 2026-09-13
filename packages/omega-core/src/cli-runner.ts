@@ -17,6 +17,10 @@ export function isOmegaCompatibleExtension(extension: Pick<Extension, "path" | "
 /** Run the coding agent with OMEGA's core functionality statically registered. */
 export async function runOmegaCli(args: string[]): Promise<void> {
 	process.title = "omega";
+	if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
+		console.log(OMEGA_VERSION);
+		return;
+	}
 	initializeUserWorkflowsDirectory();
 	await initializeKnowledgeDirectory();
 	if (args[0] === "init") {
