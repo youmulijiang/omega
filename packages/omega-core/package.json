@@ -1,8 +1,15 @@
 {
-  "name": "@omega/core",
+  "name": "@youmulijiang/omega",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "OMEGA coding agent",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "omega": "./dist/cli.js"
   },
@@ -14,9 +21,9 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@narumitw/pi-tui-kit": "0.56.0",
     "acorn": "8.16.0",
