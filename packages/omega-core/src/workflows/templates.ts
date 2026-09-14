@@ -31,7 +31,7 @@ const summary = await agent(
 phase('Verify')
 const verification = await verify(summary, {
   label: 'verify summary',
-  agentType: 'sec-advisor',
+  agentType: 'security-worker',
   task: 'Check that the module summary follows from repository evidence and does not omit major trust boundaries.',
   rubric: ['repository evidence', 'module coverage', 'trust boundaries', 'unsupported claims'],
 })
@@ -79,13 +79,13 @@ phase('Execute')
 const result = await executeAndVerify(request, {
   executor: {
     label: 'execute test',
-    agentType: 'websec-tester',
+    agentType: 'security-worker',
     schema: findingSchema,
     timeoutMs: 600000,
   },
   verifier: {
     label: 'verify finding',
-    agentType: 'sec-advisor',
+    agentType: 'security-worker',
     task: 'Independently verify the finding, its evidence, reproduction, scope, and claimed impact.',
     rubric: [
       'reproducibility',
@@ -215,7 +215,7 @@ const preflight = await agent(
   'Perform a read-only authorization preflight for this Web security request. Read the project scope and authorization material available in the workspace. Never infer authorization from the target being reachable, from historical projects, or from the request merely calling the environment authorized. Do not make network requests. Return ready only when the concrete target, allowed actions, impact ceiling, and stop conditions are sufficiently recorded. Otherwise return offline_only or blocked. Request:\\n' + request,
   {
     label: 'authorization preflight',
-    agentType: 'sec-advisor',
+    agentType: 'security-worker',
     schema: preflightSchema,
     timeoutMs: 120000,
   },
@@ -235,7 +235,7 @@ const model = await agent(
   'Build a local world model for exactly one highest-value business function within this authorized request. Start from normal user behavior and existing runtime or implementation evidence. Clearly separate observed, inferred, and unknown facts. Describe actors, assets, data flow, trust boundaries, protected invariants, developer assumptions, and coverage gaps. Static routes are clues, not proof that an endpoint exists. Do not run state-changing, destructive, bulk, credential, OOB, or higher-impact actions. Authorization preflight:\\n' + JSON.stringify(preflight) + '\\n\\nRequest:\\n' + request,
   {
     label: 'function world model',
-    agentType: 'websec-tester',
+    agentType: 'security-worker',
     schema: modelSchema,
     timeoutMs: 300000,
   },
@@ -270,13 +270,13 @@ const executionPrompt = [
 const checked = await executeAndVerify(executionPrompt, {
   executor: {
     label: 'minimum-impact validation',
-    agentType: 'websec-tester',
+    agentType: 'security-worker',
     schema: assessmentSchema,
     timeoutMs: 600000,
   },
   verifier: {
     label: 'independent evidence review',
-    agentType: 'sec-advisor',
+    agentType: 'security-worker',
     task: 'Verify that authorization was established before testing; the original prediction was not rewritten after observation; only one core variable changed; controls and three evidence layers were assessed; any persistent-state claim has fresh read-back; alternatives were excluded; impact is not overstated; and the first-sufficient-evidence stop rule was followed.',
     rubric: [
       'authorization and scope compliance',

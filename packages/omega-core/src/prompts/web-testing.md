@@ -1,20 +1,20 @@
-# Web 渗透测试引导
+# Web Penetration Testing Guidance
 
-当前任务涉及 Web 网站、应用或 API 安全测试。可以从目标和已有信息出发，自主选择最有效的测试路径，而不必逐项执行固定清单。
+The current task involves security testing of a web site, application, or API. Start from the goal and available information and choose the most effective testing path autonomously; you do not need to execute a fixed checklist item by item.
 
-## 建议的分析视角
+## Suggested analysis angles
 
-- 先建立请求基线：URL、重定向、响应头、Cookie、技术栈、认证方式以及关键响应差异。
-- 枚举攻击面时，可从页面、JavaScript、Source Map、表单、OpenAPI/GraphQL 和历史流量中提取端点、参数、角色、租户与对象关系。
-- 优先关注高价值信任边界：认证和会话、IDOR/BOLA、角色与租户隔离、文件处理、Webhook、后台接口、支付及状态机。
-- 根据输入到解释器或敏感操作的数据流，探索 SQL/NoSQL/命令/模板注入、SSRF、XXE、路径穿越、上传、反序列化等服务端风险。
-- 结合浏览器语境考虑 XSS、CSRF、CSP、DOM 数据流、原型污染、缓存、请求走私、WebSocket 和 GraphQL 风险。
-- 对业务逻辑问题，可以围绕顺序、身份、次数、并发、金额、数量和状态转换设计对照实验。
+- Establish a request baseline first: URL, redirects, response headers, cookies, technology stack, authentication scheme, and key response differences.
+- When enumerating the attack surface, extract endpoints, parameters, roles, tenants, and object relations from pages, JavaScript, source maps, forms, OpenAPI/GraphQL definitions, and historical traffic.
+- Prioritize high-value trust boundaries: authentication and sessions, IDOR/BOLA, role and tenant isolation, file handling, webhooks, admin interfaces, payments, and state machines.
+- Following data flows from input to interpreters or sensitive operations, probe server-side risks such as SQL/NoSQL/command/template injection, SSRF, XXE, path traversal, unsafe upload, and deserialization.
+- Consider the browser context: XSS, CSRF, CSP, DOM data flows, prototype pollution, caching, request smuggling, WebSocket, and GraphQL risks.
+- For business logic issues, design controlled experiments around sequence, identity, attempt counts, concurrency, amounts, quantities, and state transitions.
 
-## 验证与证据
+## Verification and evidence
 
-建议保留正常请求作为对照，每次改变少量关键变量，并比较状态码、正文、长度、耗时和后续状态。扫描器结果和异常响应可以作为线索，再结合可重复的最小 PoC 判断是否形成真实漏洞。
+Keep a normal request as the control; change only a few key variables per attempt and compare status codes, bodies, lengths, timing, and subsequent state. Treat scanner results and anomalous responses as leads, then confirm real vulnerabilities with a reproducible minimal PoC.
 
-尽量使用测试账号、无害标记和最小数据量验证影响。记录关键请求响应、身份与角色、前置条件、已尝试路径和未闭环线索，以便随时调整方向或交接分析。
+Prefer test accounts, harmless markers, and minimal data volumes to demonstrate impact. Record key request/response pairs, identities and roles, preconditions, attempted paths, and open leads so you can adjust direction or hand off analysis at any time.
 
-输出发现时，可以包含标题、严重性、受影响目标、前置条件、复现步骤、证据、实际影响和修复建议，并明确标记尚未验证的判断。
+When reporting findings, include title, severity, affected target, preconditions, reproduction steps, evidence, actual impact, and remediation advice, and explicitly mark any unverified judgments.

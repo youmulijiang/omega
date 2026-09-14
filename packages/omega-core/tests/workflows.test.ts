@@ -225,15 +225,15 @@ return second`,
 		};
 		const runner: WorkflowAgentRunner = {
 			run: async (_prompt, options) =>
-				options?.agentType === "sec-advisor"
+				options?.schema
 					? verification
 					: { status: "confirmed", evidence: ["HTTP 200 without a session"] },
 		};
 		const result = await runWorkflow(
 			`export const meta = { name: 'checked_test', description: 'Execute and verify' }
 return await executeAndVerify('Test the authorized target.', {
-  executor: { label: 'execute test', agentType: 'websec-tester' },
-  verifier: { label: 'verify finding', agentType: 'sec-advisor', task: 'Verify the auth bypass.' },
+  executor: { label: 'execute test', agentType: 'security-worker' },
+  verifier: { label: 'verify finding', agentType: 'security-worker', task: 'Verify the auth bypass.' },
 })`,
 			{ cwd: process.cwd(), agentRunner: runner },
 		);
@@ -504,7 +504,7 @@ describe("workflow TUI display", () => {
 					kind: "agent" as const,
 					label: "second agent",
 					state: "running" as const,
-					agentType: "sec-advisor",
+					agentType: "security-worker",
 					output: "second output",
 				},
 			],

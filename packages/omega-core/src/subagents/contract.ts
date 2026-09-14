@@ -44,7 +44,7 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		schemaDescription:
 			"Model to use for this call. Overrides the agent file's default model; otherwise the parent session's current model is inherited.",
 		promptDescription:
-			"model to use for this call. Overrides the agent file's default model. If omitted, the agent's default model is used when configured; otherwise Omega uses the parent session's current effective model",
+			"optional model override; defaults to the agent's configured model, else the parent session's current model",
 	},
 	{
 		name: "cwd",
@@ -58,7 +58,7 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		schemaDescription:
 			"Initial context for a newly-created child conversation: 'empty' (default) or 'parent'. Parent cloning is expensive and carries the parent's authority; prefer empty and pass relevant context deliberately. Existing named sessions ignore this field.",
 		promptDescription:
-			'`"empty"` (default) starts without parent history; `"parent"` exceptionally clones the current parent session snapshot, which is expensive and carries the parent conversation\'s authority. Prefer empty and pass relevant context deliberately. Existing named sessions ignore this field',
+			'"empty" (default) starts without parent history; "parent" clones the parent session snapshot, which is expensive and carries the parent conversation\'s authority; ignored by existing named sessions',
 	},
 	{
 		name: "session",
@@ -66,7 +66,7 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		schemaDescription:
 			"Optional logical handle for a persistent subagent session. Scoped by parent session, effective cwd, and agent name.",
 		promptDescription:
-			"durable conversation handle. If present, the call continues or creates a persistent child Omega session. The handle is scoped by parent session, effective cwd, and agent name. The same handle used with different agents resolves to different sessions. Requires a persisted parent Omega session",
+			"durable conversation handle scoped by parent session, effective cwd, and agent name; requires a persisted parent Omega session",
 	},
 	{
 		name: "inactivityTimeout",
@@ -74,7 +74,7 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		schemaDescription:
 			"Optional positive integer inactivity timeout in seconds. Overrides the agent default. Resets only when the child emits RPC stdout activity; omitted uses the agent default, or no inactivity timeout.",
 		promptDescription:
-			"positive integer inactivity timeout in seconds. Overrides the agent default; otherwise the agent default applies, or there is no inactivity timeout. It resets only on child RPC stdout activity",
+			"optional inactivity timeout in seconds; overrides the agent default and resets only on child RPC stdout activity",
 	},
 	{
 		name: "timeout",
@@ -82,7 +82,7 @@ export const CALL_FIELDS: CallFieldContract[] = [
 		schemaDescription:
 			"Optional positive integer absolute wall-clock deadline in seconds. Independent of inactivityTimeout. Defaults to 1800 seconds; timed-out processes are terminated and release their queue slot.",
 		promptDescription:
-			"positive integer absolute wall-clock deadline in seconds, independent of `inactivityTimeout`. It defaults to 1800 seconds; timeout terminates the child and lets the queue continue",
+			"optional wall-clock deadline in seconds; defaults to 1800, timed-out children are terminated and release their queue slot",
 	},
 ];
 
@@ -200,22 +200,12 @@ ${formatDelegationRules()}
 export function formatSubagentToolDescription(): string {
 	return [
 		"Launch specialized subagents as non-blocking background tasks in isolated Omega processes.",
-		"",
 		"Use exactly one top-level `calls` array for both one and many invocations.",
 		"Each call requires `agent` and `prompt`; `prompt` is sent verbatim.",
 		"Choose agents from the conversation context and prompt: use the most specific matching existing agent; if none fits, call `explore` to create a project agent, then invoke the new agent in a subsequent tool call.",
+		'Prefer initialContext: "empty" and pass relevant context deliberately.',
 		"",
-		"Fields:",
-		formatCallFieldList(),
-		"",
-		"Rules:",
-		formatAgentSelectionRules(),
-		"",
-		formatDelegationRules(),
-		"",
-		"Multiple calls may run concurrently. Task IDs return immediately; use subagent_status to read answers and subagent_message to coordinate with active tasks.",
-		"Model-facing output is capped at Omega's standard 50KB/2000-line limits; full truncated output is saved to a temporary file for the active session.",
-		"",
-		'Example: { calls: [{ agent: "review", prompt: "Review this diff", model: "anthropic/claude-sonnet-4", session: "api-review", initialContext: "empty" }] }',
+		"Field details, selection rules, and session semantics are documented in the system prompt's Available Subagents section.",
+		"Task IDs return immediately; use subagent_status to read answers and subagent_message to coordinate with active tasks.",
 	].join("\n");
 }

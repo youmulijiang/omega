@@ -71,7 +71,7 @@ describe("Omega subagent discovery", () => {
 		});
 		expect(reviewer?.systemPrompt).toContain("authentication and authorization");
 		expect(discovery.agents.map((agent) => agent.name)).toEqual(
-			expect.arrayContaining(["log-analyst", "websec-tester", "osint-analyst", "sec-advisor"]),
+			expect.arrayContaining(["explore", "security-worker", "workflow-author"]),
 		);
 	});
 
@@ -82,7 +82,7 @@ describe("Omega subagent discovery", () => {
 		fs.writeFileSync(path.join(agentsDir, "invalid.md"), "---\nname: invalid\n---\nPrompt");
 		const discovery = discoverAgents(root, "project");
 		expect(discovery.agents.some((agent) => agent.name === "invalid")).toBe(false);
-		expect(discovery.agents.some((agent) => agent.name === "log-analyst")).toBe(true);
+		expect(discovery.agents.some((agent) => agent.name === "security-worker")).toBe(true);
 	});
 
 	it("includes a built-in explorer that can author project agents", () => {
@@ -94,7 +94,7 @@ describe("Omega subagent discovery", () => {
 			thinking: "high",
 		});
 		expect(explorer?.systemPrompt).toContain(".omega/agents/");
-		expect(explorer?.systemPrompt).toContain("不得改写");
+		expect(explorer?.systemPrompt).toContain("never rewrite the existing file");
 	});
 });
 

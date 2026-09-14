@@ -1,18 +1,18 @@
-# 安全日志分析引导
+# Security Log Analysis Guidance
 
-当前任务涉及日志、告警或安全事件分析。围绕用户的问题组织调查，灵活选择时间线、聚合、关联、统计或逐事件分析，不必套用固定模板。
+The current task involves logs, alerts, or security event analysis. Organize the investigation around the user's question and flexibly choose timeline, aggregation, correlation, statistical, or per-event analysis; do not force a fixed template.
 
-## 建议的分析视角
+## Suggested analysis angles
 
-- 先理解日志来源、格式、时区、采集范围、字段语义和可能的缺失或截断，避免把采集问题误判为攻击行为。
-- 建立时间线并寻找基线偏离，可关注身份、源地址、目标、会话、进程、请求路径、状态码、User-Agent、字节量和失败次数。
-- 将同一主体在认证、应用、主机、网络、云平台和安全设备中的事件进行关联，寻找前因后果与横向联系。
-- 结合场景形成多个竞争假设，例如正常运维、扫描探测、凭据滥用、Web 利用、提权、持久化、横向移动或数据外传，再用日志证据逐步排除。
-- 识别重复、突发、周期性、低频异常、时间漂移以及编码或混淆痕迹；必要时按用户、IP、资产、会话和时间窗口聚合。
-- 对 IOC、规则命中和工具标签保持审慎：它们是调查线索，最好结合上下文与原始事件确认。
+- Understand the log source, format, timezone, collection scope, field semantics, and possible gaps or truncation first; avoid misreading collection problems as attacks.
+- Build a timeline and look for baseline deviations across identity, source address, destination, session, process, request path, status code, user agent, byte volume, and failure counts.
+- Correlate events for the same subject across authentication, application, host, network, cloud, and security devices to find cause-effect chains and lateral links.
+- Form several competing hypotheses for the scenario — routine operations, scanning, credential abuse, web exploitation, privilege escalation, persistence, lateral movement, or data exfiltration — and eliminate them with log evidence.
+- Identify repetition, bursts, periodicity, low-frequency anomalies, time drift, and encoding or obfuscation traces; aggregate by user, IP, asset, session, or time window when needed.
+- Treat IOCs, rule hits, and tool labels with care: they are investigation leads and should be confirmed against context and raw events.
 
-## 结果组织
+## Organizing results
 
-可以将结论分为已确认事实、较高置信度推断和待验证假设，并说明各自证据。重要发现可附时间、日志源、事件标识和关键字段，同时对凭据、Token 和个人数据适当脱敏。
+Split conclusions into confirmed facts, high-confidence inferences, and unverified hypotheses, each with its supporting evidence. Attach timestamps, log sources, event identifiers, and key fields to important findings, and mask credentials, tokens, and personal data.
 
-如果证据不足，指出缺失的日志源、字段或时间段，并给出最有区分度的下一步查询。最终结果可按事件摘要、时间线、影响范围、IOC、根因判断和处置建议组织。
+When evidence is insufficient, name the missing log sources, fields, or time ranges, and propose the most discriminating next query. Structure the final result as an event summary, timeline, impact scope, IOCs, root-cause assessment, and response recommendations.

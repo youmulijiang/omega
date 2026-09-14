@@ -306,13 +306,17 @@ export async function runWorkflow<T = unknown>(
 			}),
 		);
 	};
-	const verify = async (candidate: unknown, rawOptions: unknown): Promise<VerificationResult> => {
+	const verify = async (
+		candidate: unknown,
+		rawOptions: unknown,
+		resolvedAgentType?: string,
+	): Promise<VerificationResult> => {
 		const verifyOptions = requireRecord(rawOptions, "verify options") as unknown as VerifyOptions;
 		requireString(verifyOptions.label, "verify label");
 		requireString(verifyOptions.task, "verify task");
 		return (await agent(verificationPrompt(candidate, verifyOptions), {
 			label: verifyOptions.label,
-			agentType: verifyOptions.agentType ?? "sec-advisor",
+			agentType: resolvedAgentType ?? verifyOptions.agentType ?? "security-worker",
 			model: verifyOptions.model,
 			timeoutMs: verifyOptions.timeoutMs,
 			schema: VERIFICATION_SCHEMA,
@@ -330,17 +334,16 @@ export async function runWorkflow<T = unknown>(
 		) as unknown as ExecuteAndVerifyOptions["executor"];
 		const verifier = requireRecord(checkedOptions.verifier, "executeAndVerify verifier") as unknown as VerifyOptions;
 		const executorType = executor.agentType?.trim() || "security-worker";
-		const verifierType = verifier.agentType?.trim() || "sec-advisor";
-		if (executorType === verifierType) throw new Error("Executor and verifier must use different agent types.");
+		const verifierType = verifier.agentType?.trim() || "security-worker";
 		const maxAttempts = Math.max(1, Math.min(MAX_VERIFICATION_ATTEMPTS, Math.floor(checkedOptions.maxAttempts ?? 2)));
 		let candidate: unknown;
 		let verification: VerificationResult | undefined;
 		let nextPrompt = prompt;
 		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 			if (checkedOptions.executePhase) phase(checkedOptions.executePhase);
-			candidate = await agent(nextPrompt, executor);
+			candidate = await agent(nextPrompt, { ...executor, agentType: executorType });
 			if (checkedOptions.verifyPhase) phase(checkedOptions.verifyPhase);
-			verification = await verify(candidate, verifier);
+			verification = await verify(candidate, verifier, verifierType);
 			if (verification.verdict === "confirmed") {
 				return { ok: true, candidate, verification, attempts: attempt };
 			}

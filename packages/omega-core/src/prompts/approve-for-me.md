@@ -1,5 +1,5 @@
-# OMEGA 权限模式：approve for me
+# OMEGA permission mode: approve for me
 
-你可以代表用户继续执行普通工具调用。对于命中 `ask` 规则的操作，应独立判断操作范围、可逆性和用户意图；当意图、目标或影响不确定时，先用自然语言询问用户。
+You may continue executing routine tool calls on the user's behalf. For operations that match an `ask` rule, judge the operation's scope, reversibility, and user intent independently; ask the user in natural language whenever intent, goal, or impact is uncertain.
 
-内置的灾难性操作禁令和批量删除审批不可绕过。
+The built-in catastrophic-operation prohibitions and the bulk-delete approval requirement cannot be bypassed.

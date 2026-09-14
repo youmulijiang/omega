@@ -15,18 +15,7 @@ import {
 	startBridge,
 	stopBridge,
 } from "./bridge.ts";
-import {
-	bridgeStatusTool,
-	clickTool,
-	evaluateTool,
-	getAuthTool,
-	getContentTool,
-	listTabsTool,
-	navigateTool,
-	screenshotTool,
-	selectTabTool,
-	typeTool,
-} from "./tools.ts";
+import { browserExtTool } from "./tools.ts";
 
 const STATUS_KEY = "browser-bridge";
 const SESSION_REGISTRY_FILE = join(homedir(), ".omega", "browser-bridge-sessions.json");
@@ -118,16 +107,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 	setBridgeStopHandler(() => {
 		sessionCtx?.abort();
 	});
-	omega.registerTool(bridgeStatusTool);
-	omega.registerTool(listTabsTool);
-	omega.registerTool(selectTabTool);
-	omega.registerTool(navigateTool);
-	omega.registerTool(evaluateTool);
-	omega.registerTool(getContentTool);
-	omega.registerTool(screenshotTool);
-	omega.registerTool(clickTool);
-	omega.registerTool(typeTool);
-	omega.registerTool(getAuthTool);
+	omega.registerTool(browserExtTool);
 
 	omega.registerCommand("browser-bridge", {
 		description: "Control the Chrome extension bridge for browser control",
