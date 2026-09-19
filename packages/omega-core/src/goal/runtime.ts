@@ -15,6 +15,7 @@ import {
 	clearLegacyPersistedGoal,
 	type LegacyQueueState,
 	type SafetyPauseCause,
+	type VerificationRejection,
 	serializeGoalState,
 } from "./persistence.ts";
 import { buildContinuePrompt, type GoalStatus } from "./prompts.ts";
@@ -824,7 +825,9 @@ export class GoalRuntime {
 		const count =
 			cause === "continuation_limit"
 				? `${goal.automaticModelTurns} of ${automaticLimit ?? "Unlimited"} automatic model responses`
-				: `no progress across ${goal.toolFreeRepeatCount} automatic runs`;
+				: cause === "verification_limit"
+					? `verification rejected ${goal.verificationFailures ?? 0} consecutive completion claims`
+					: `no progress across ${goal.toolFreeRepeatCount} automatic runs`;
 		const stoppedGoal = this.stopActiveGoal(ctx, {
 			kind: "safety_pause",
 			expectedGoalId: goal.id,
@@ -837,10 +840,44 @@ export class GoalRuntime {
 			ctx.ui,
 			cause === "continuation_limit"
 				? `Automatic-work limit reached: ${stoppedGoal.automaticModelTurns} of ${automaticLimit} responses. Goal progress is saved with ${formatTokenCount(stoppedGoal.tokensUsed)} cumulative tokens. Open /goal to review and continue.`
-				: `Goal paused: ${count}; ${formatTokenCount(stoppedGoal.tokensUsed)} cumulative tokens. Open /goal to review and continue.`,
+				: cause === "verification_limit"
+					? `Verification limit reached: the completion claim was rejected ${stoppedGoal.verificationFailures} times. Progress is saved; open /goal to review the reported gaps and continue.`
+					: `Goal paused: ${count}; ${formatTokenCount(stoppedGoal.tokensUsed)} cumulative tokens. Open /goal to review and continue.`,
 			"warning",
 		);
 		return true;
+	}
+
+	recordVerificationRejection(goalId: string, failures: number, rejection: VerificationRejection) {
+		const goal = this.activeGoal;
+		if (!goal || goal.id !== goalId) return;
+		goal.verificationFailures = failures;
+		goal.verificationGaps = rejection;
+		goal.updatedAt = Date.now();
+		this.persistGoal(goal);
+	}
+
+	clearVerificationState(goalId: string) {
+		const goal = this.activeGoal;
+		if (!goal || goal.id !== goalId) return;
+		if (goal.verificationFailures === undefined && goal.verificationGaps === undefined) return;
+		goal.verificationFailures = undefined;
+		goal.verificationGaps = undefined;
+		goal.updatedAt = Date.now();
+		this.persistGoal(goal);
+	}
+
+	pauseGoalForVerificationLimit(
+		ctx: StatusContext,
+		goalId: string,
+		failures: number,
+		rejection: VerificationRejection,
+	) {
+		const goal = this.activeGoal;
+		if (!goal || goal.id !== goalId || goal.status !== "active") return;
+		goal.verificationFailures = failures;
+		goal.verificationGaps = rejection;
+		this.pauseGoalForSafety(ctx, "verification_limit", false);
 	}
 
 	resetActiveSafetyEpoch(ctx: StatusContext) {
@@ -1417,6 +1454,7 @@ export function formatStatus(
 		automaticTurnLimit === null
 			? "automatic Unlimited"
 			: `automatic ${goal.automaticModelTurns}/${automaticTurnLimit}`;
+	const plan = planProgressSuffix(goal);
 	if (goal.status === "queued") return `queued · ${automatic}`;
 	if (goal.waiting) {
 		return `waiting ${safeGoalMenuText(goal.waiting.reason)} · ${automatic}`;
@@ -1430,12 +1468,21 @@ export function formatStatus(
 		}
 		return `paused · automatic limit ${goal.automaticModelTurns}/${automaticTurnLimit}`;
 	}
-	if (goal.status === "paused") return `paused · ${automatic}`;
-	if (goal.status === "blocked") return `blocked · ${automatic}`;
-	if (goal.status === "usage_limited") return `usage · ${automatic}`;
-	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)} · ${automatic}`;
-	if (goal.tokenBudget !== undefined) return `active ${formatBudget(goal)} · ${automatic}`;
-	return `active ${formatDuration(goal.timeUsedSeconds)} · ${automatic}`;
+	if (goal.status === "paused" && goal.safetyPauseCause === "verification_limit") {
+		return `paused · verification rejected ${goal.verificationFailures ?? 0} completion claims${plan}`;
+	}
+	if (goal.status === "paused") return `paused · ${automatic}${plan}`;
+	if (goal.status === "blocked") return `blocked · ${automatic}${plan}`;
+	if (goal.status === "usage_limited") return `usage · ${automatic}${plan}`;
+	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)} · ${automatic}${plan}`;
+	if (goal.tokenBudget !== undefined) return `active ${formatBudget(goal)} · ${automatic}${plan}`;
+	return `active ${formatDuration(goal.timeUsedSeconds)} · ${automatic}${plan}`;
+}
+
+function planProgressSuffix(goal: ActiveGoal) {
+	if (!goal.planSteps?.length) return "";
+	const completed = goal.planSteps.filter((step) => step.completed).length;
+	return ` · 📋 ${completed}/${goal.planSteps.length}`;
 }
 
 export function formatBudget(goal: ActiveGoal) {
@@ -1464,11 +1511,23 @@ export function goalSummary(
 		`Active elapsed: ${formatDuration(goal.timeUsedSeconds)}`,
 		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goal.tokensUsed) : formatBudget(goal)}`,
 	];
+	if (goal.planSteps?.length) {
+		const completed = goal.planSteps.filter((step) => step.completed).length;
+		summary.push(`Plan progress: ${completed} of ${goal.planSteps.length} steps done`);
+	}
+	if (goal.verificationGaps) {
+		summary.push(
+			`Last verification rejection: ${safeGoalMenuText(goal.verificationGaps.reason, 300)}`,
+			...goal.verificationGaps.missingEvidence.slice(0, 5).map((item) => `  - ${safeGoalMenuText(item, 200)}`),
+		);
+	}
 	if (goal.safetyPauseCause) {
 		summary.push(
 			goal.safetyPauseCause === "continuation_limit"
 				? `Safety pause: automatic-work limit reached (${goal.automaticModelTurns} of ${automaticTurnLimit ?? "Unlimited"} responses). Progress is saved; open /goal to review and continue.`
-				: "Safety pause: no progress. Progress is saved; open /goal to review and continue.",
+				: goal.safetyPauseCause === "verification_limit"
+					? `Safety pause: verification rejected ${goal.verificationFailures ?? 0} consecutive completion claims. Progress is saved; open /goal to review the reported gaps and continue.`
+					: "Safety pause: no progress. Progress is saved; open /goal to review and continue.",
 		);
 	}
 	summary.push(`Commands: ${goalCommandHint(goal)}`);

@@ -9,7 +9,13 @@ const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const LEGACY_GOALS_STATE_ENTRY_TYPE = "goals-state";
 const STATE_FILE = join(getAgentDir(), "pi-goal-state.json");
 
-export type SafetyPauseCause = "continuation_limit" | "no_progress";
+export type SafetyPauseCause = "continuation_limit" | "no_progress" | "verification_limit";
+
+export interface VerificationRejection {
+	reason: string;
+	missingEvidence: string[];
+	nextActions?: string[];
+}
 
 export interface ActiveGoal {
 	id: string;
@@ -29,6 +35,18 @@ export interface ActiveGoal {
 	safetyPauseCause?: SafetyPauseCause;
 	safetyResetPending?: boolean;
 	waiting?: GoalWait;
+	/** Consecutive supervisor verdicts of not_achieved/insufficient_evidence for the current goal instance. */
+	verificationFailures?: number;
+	/** Structured gaps from the last rejected goal_complete verdict, replayed into continuation prompts. */
+	verificationGaps?: VerificationRejection;
+	/** Numbered plan steps extracted from assistant "Plan:" output (plan-superset progress tracking). */
+	planSteps?: PlanStep[];
+}
+
+export interface PlanStep {
+	step: number;
+	text: string;
+	completed: boolean;
 }
 
 export interface GoalStateEntryData {
@@ -180,8 +198,39 @@ export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 		lastToolFreeOutputFingerprint: normalizeOutputFingerprint(goal.lastToolFreeOutputFingerprint),
 		safetyPauseCause: normalizeSafetyPauseCause(goal.safetyPauseCause),
 		safetyResetPending: goal.safetyResetPending === true ? true : undefined,
+		verificationFailures: normalizeSafetyCounter(goal.verificationFailures),
+		verificationGaps: normalizeVerificationRejection(goal.verificationGaps),
+		planSteps: normalizePlanSteps(goal.planSteps),
 		waiting,
 	};
+}
+
+function normalizeVerificationRejection(value: unknown): VerificationRejection | undefined {
+	if (!isRecord(value)) return undefined;
+	if (typeof value.reason !== "string" || !value.reason.trim()) return undefined;
+	if (!Array.isArray(value.missingEvidence) || !value.missingEvidence.every((item) => typeof item === "string")) {
+		return undefined;
+	}
+	const nextActions = Array.isArray(value.nextActions)
+		? value.nextActions.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 32)
+		: undefined;
+	return {
+		reason: value.reason,
+		missingEvidence: value.missingEvidence.filter((item) => item.trim()).slice(0, 32),
+		...(nextActions?.length ? { nextActions } : {}),
+	};
+}
+
+function normalizePlanSteps(value: unknown): PlanStep[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const steps: PlanStep[] = [];
+	for (const item of value) {
+		if (!isRecord(item)) continue;
+		if (typeof item.text !== "string" || !item.text.trim()) continue;
+		const step = typeof item.step === "number" && Number.isSafeInteger(item.step) ? item.step : steps.length + 1;
+		steps.push({ step, text: item.text.slice(0, 200), completed: item.completed === true });
+	}
+	return steps.length > 0 ? steps.slice(0, 50) : undefined;
 }
 
 function normalizeSafetyCounter(value: unknown) {
@@ -193,7 +242,9 @@ function normalizeOutputFingerprint(value: unknown) {
 }
 
 function normalizeSafetyPauseCause(value: unknown): SafetyPauseCause | undefined {
-	return value === "continuation_limit" || value === "no_progress" ? value : undefined;
+	return value === "continuation_limit" || value === "no_progress" || value === "verification_limit"
+		? value
+		: undefined;
 }
 
 export function clearLegacyPersistedGoal(cwd: string) {

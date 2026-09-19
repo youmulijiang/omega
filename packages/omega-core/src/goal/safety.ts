@@ -18,6 +18,9 @@ export function resetGoalSafetyEpoch(goal: ActiveGoal): ActiveGoal {
 		lastToolFreeOutputFingerprint: undefined,
 		safetyPauseCause: undefined,
 		safetyResetPending: undefined,
+		// A human-reviewed resume grants fresh verification attempts; keep
+		// verificationGaps as context so the model still sees why it was rejected.
+		verificationFailures: 0,
 	};
 }
 

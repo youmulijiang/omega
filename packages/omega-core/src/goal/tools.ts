@@ -9,6 +9,7 @@ import {
 import { Markdown } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { notifyTerminal, safeTerminalText } from "./errors.ts";
+import type { VerificationRejection } from "./persistence.ts";
 import {
 	formatStatus,
 	GOAL_BLOCKED_TOOL,
@@ -23,6 +24,13 @@ import {
 	truncateNotification,
 } from "./runtime.ts";
 import {
+	createGoalVerifier,
+	type GoalVerificationResult,
+	type SkepticRunner,
+	VerificationUnavailableError,
+	buildVerificationPrompt,
+} from "./verifier.ts";
+import {
 	createGoalWait,
 	MAX_GOAL_WAIT_DELAY_MS,
 	MAX_GOAL_WAIT_REASON_LENGTH,
@@ -34,6 +42,80 @@ interface GoalCompleteDetails {
 	goal: string;
 	goal_id: string;
 	summary: string;
+}
+
+interface GoalVerificationOutcome {
+	verdict: "achieved" | "unavailable";
+	rejection?: VerificationRejection;
+}
+
+/**
+ * Run the out-of-process skeptic against the completion claim.
+ *
+ * - not_achieved / insufficient_evidence: fails closed. The claim is rejected,
+ *   gaps are recorded on the goal for the continuation prompt, and hitting
+ *   maxAttempts pauses the goal for review (ARTEX prove_goal model).
+ * - Infrastructure failure after in-verifier retries: fails open (accepted) so
+ *   an unusable verifier cannot wedge the goal; the user is told why.
+ */
+async function runGoalVerification(
+	runtime: GoalRuntime,
+	ctx: Parameters<Parameters<typeof defineTool>["0"]["execute"]>[4],
+	completedGoal: NonNullable<GoalRuntime["activeGoal"]>,
+	summary: string,
+	options: GoalToolsOptions,
+): Promise<GoalVerificationOutcome> {
+	const verification = runtime.settings.verification;
+	const skeptic =
+		options.skepticRunner ??
+		createGoalVerifier({
+			cwd: ctx.cwd,
+			parentModel: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
+		});
+	const prompt = buildVerificationPrompt({
+		goal: completedGoal,
+		completionSummary: summary,
+		verificationGaps: completedGoal.verificationGaps,
+	});
+
+	let verdict: GoalVerificationResult;
+	try {
+		verdict = await skeptic(prompt, verification.timeoutMs);
+	} catch (error) {
+		const detail = error instanceof VerificationUnavailableError ? error.message : formatUnknown(error);
+		notifyTerminal(
+			ctx.ui,
+			`Goal verification could not run (completion accepted): ${truncateNotification(detail)}`,
+			"warning",
+		);
+		return { verdict: "achieved" };
+	}
+
+	if (verdict.verdict === "achieved") {
+		runtime.clearVerificationState(completedGoal.id);
+		return { verdict: "achieved" };
+	}
+
+	const failures = (completedGoal.verificationFailures ?? 0) + 1;
+	const rejection: VerificationRejection = {
+		reason: verdict.summary,
+		missingEvidence: verdict.missingEvidence.slice(0, 16),
+		...(verdict.nextActions.length ? { nextActions: verdict.nextActions.slice(0, 16) } : {}),
+	};
+	runtime.recordVerificationRejection(completedGoal.id, failures, rejection);
+	notifyTerminal(
+		ctx.ui,
+		`Goal verification rejected the completion (${verdict.verdict}, attempt ${failures}/${verification.maxAttempts}). Gaps were sent back to the goal.`,
+		"warning",
+	);
+	if (failures >= verification.maxAttempts) {
+		runtime.pauseGoalForVerificationLimit(ctx, completedGoal.id, failures, rejection);
+	}
+	return { verdict: "achieved", rejection };
+}
+
+function formatUnknown(error: unknown) {
+	return error instanceof Error ? error.message : String(error);
 }
 
 interface GoalBlockedDetails {
@@ -58,12 +140,17 @@ const MAX_COMPLETION_SUMMARY_LENGTH = 4_000;
 const MAX_BLOCKER_REASON_LENGTH = 1_000;
 const MAX_BLOCKER_EVIDENCE_LENGTH = 4_000;
 
-export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime) {
+/** Injected for tests so verification can be stubbed without spawning subprocesses. */
+export interface GoalToolsOptions {
+	skepticRunner?: SkepticRunner;
+}
+
+export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime, options: GoalToolsOptions = {}) {
 	const goalCompleteTool = defineTool({
 		name: GOAL_COMPLETE_TOOL,
 		label: "Goal Complete",
 		description:
-			"Mark an active /goal complete only when the latest effective Goal contract explicitly says Goal mode is active, supplies the matching current goal_id, and every requirement is verified. Tool visibility alone does not activate Goal mode. Never call for ordinary work, partial progress, blockers, failures, or unverified work.",
+			"Mark an active /goal complete only when the latest effective Goal contract explicitly says Goal mode is active, supplies the matching current goal_id, and every requirement is verified. A call triggers independent supervisor verification: if the skeptic cannot prove the claim from actual state, the call is rejected, the reported gaps come back to you, and the goal stays active. Tool visibility alone does not activate Goal mode. Never call for ordinary work, partial progress, blockers, failures, or unverified work.",
 		parameters: Type.Object({
 			goal_id: Type.String({
 				minLength: 1,
@@ -160,6 +247,53 @@ export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime) {
 					details: completionDetails(goal, requestedGoalId, summary),
 					terminate: completingDuringBudgetWrapUp || undefined,
 				};
+			}
+
+			// Independent supervisor verification: the claim survived the local
+			// consistency checks; now an out-of-process skeptic re-proves it against
+			// the actual worktree. Wrap-up completions keep the legacy fail-open path
+			// because the skeptic's tools are blocked during wrap-up.
+			if (
+				runtime.settings.verification.enabled &&
+				!completingDuringBudgetWrapUp &&
+				ctx.mode !== "print" &&
+				ctx.mode !== "json"
+			) {
+				const verificationOutcome = await runGoalVerification(runtime, ctx, completedGoal, summary, options);
+				const verificationRejection = verificationOutcome.rejection;
+				if (verificationRejection) {
+					runtime.recordGoalUsage(completedGoal, ctx);
+					runtime.persistGoal(completedGoal);
+					runtime.updateStatus(ctx, completedGoal);
+					const rejection = `Goal completion rejected by verification: ${verificationRejection.reason}`;
+					notifyTerminal(ctx.ui, rejection, "warning");
+
+					return {
+						content: toolContent(
+							[
+								"Goal completion was independently verified and NOT confirmed. The goal stays active; keep working.",
+								`Skeptic judgment: ${verificationRejection.reason}`,
+								verificationRejection.missingEvidence.length
+									? `Missing or unproven requirements:\n${verificationRejection.missingEvidence
+											.map((item) => `- ${item}`)
+											.join("\n")}`
+									: "",
+								verificationRejection.nextActions?.length
+									? `Close the gaps:\n${verificationRejection.nextActions
+											.map((item) => `- ${item}`)
+											.join("\n")}`
+									: "",
+							]
+								.filter(Boolean)
+								.join("\n\n"),
+						),
+						details: {
+							...completionDetails(goal, requestedGoalId, summary),
+							verification: verificationOutcome.verdict,
+							verificationRejected: true,
+						},
+					};
+				}
 			}
 
 			runtime.clearGoalWaitTimer();

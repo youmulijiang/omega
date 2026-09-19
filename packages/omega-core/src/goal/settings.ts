@@ -15,11 +15,20 @@ export interface GoalSettings {
 		automaticTurns: ContinuationLimit;
 		noProgressTurns: ContinuationLimit;
 	};
+	/** Independent supervisor verification of goal_complete calls. */
+	verification: {
+		enabled: boolean;
+		/** Consecutive not_achieved verdicts before the goal pauses for review. */
+		maxAttempts: number;
+		/** Per-verification skeptic subagent timeout in milliseconds. */
+		timeoutMs: number;
+	};
 }
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
 	rpc: { enabled: false },
 	continuationLimits: { automaticTurns: 25, noProgressTurns: 3 },
+	verification: { enabled: true, maxAttempts: 3, timeoutMs: 300_000 },
 };
 
 export type GoalSettingsLoadResult =
@@ -74,10 +83,38 @@ export function normalizeGoalSettings(value: unknown): GoalSettings | undefined 
 		: DEFAULT_GOAL_SETTINGS.continuationLimits.noProgressTurns;
 	if (automaticTurns === undefined || noProgressTurns === undefined) return undefined;
 
+	const verificationValue = ownRecord(Reflect.get(value, "verification"));
+	if (Object.hasOwn(value, "verification") && !verificationValue) return undefined;
+	const verification = verificationValue
+		? normalizeVerificationSettings(verificationValue)
+		: DEFAULT_GOAL_SETTINGS.verification;
+	if (!verification) return undefined;
+
 	return {
 		rpc: { enabled: rpcEnabled },
 		continuationLimits: { automaticTurns, noProgressTurns },
+		verification,
 	};
+}
+
+function normalizeVerificationSettings(value: Record<string, unknown>): GoalSettings["verification"] | undefined {
+	const enabled = Object.hasOwn(value, "enabled")
+		? Reflect.get(value, "enabled")
+		: DEFAULT_GOAL_SETTINGS.verification.enabled;
+	if (typeof enabled !== "boolean") return undefined;
+	const maxAttempts = Object.hasOwn(value, "maxAttempts")
+		? normalizePositiveInteger(Reflect.get(value, "maxAttempts"), DEFAULT_GOAL_SETTINGS.verification.maxAttempts)
+		: DEFAULT_GOAL_SETTINGS.verification.maxAttempts;
+	const timeoutMs = Object.hasOwn(value, "timeoutMs")
+		? normalizePositiveInteger(Reflect.get(value, "timeoutMs"), DEFAULT_GOAL_SETTINGS.verification.timeoutMs)
+		: DEFAULT_GOAL_SETTINGS.verification.timeoutMs;
+	if (maxAttempts === undefined || timeoutMs === undefined) return undefined;
+	return { enabled, maxAttempts, timeoutMs };
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number): number | undefined {
+	if (value === undefined) return fallback;
+	return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function normalizeContinuationLimit(value: unknown, fallback: ContinuationLimit): ContinuationLimit | undefined {
@@ -110,6 +147,7 @@ export function saveGoalSettings(
 
 	const rpc = ownRecord(raw.rpc) ?? {};
 	const continuationLimits = ownRecord(raw.continuationLimits) ?? {};
+	const rawVerification = ownRecord(raw.verification) ?? {};
 	const document = `${JSON.stringify(
 		{
 			...raw,
@@ -118,6 +156,12 @@ export function saveGoalSettings(
 				...continuationLimits,
 				automaticTurns: normalized.continuationLimits.automaticTurns,
 				noProgressTurns: normalized.continuationLimits.noProgressTurns,
+			},
+			verification: {
+				...rawVerification,
+				enabled: normalized.verification.enabled,
+				maxAttempts: normalized.verification.maxAttempts,
+				timeoutMs: normalized.verification.timeoutMs,
 			},
 		},
 		null,

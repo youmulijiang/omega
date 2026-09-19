@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { OmegaAPI } from "../api.ts";
 import { currentTokenTotal } from "./accounting.ts";
 import { notifyTerminal } from "./errors.ts";
 import {
@@ -26,6 +26,7 @@ import {
 	truncateNotification,
 } from "./runtime.ts";
 import { hasAssistantToolCall } from "./safety.ts";
+import { advanceGoalPlan, adoptGoalPlan, assistantTextOf } from "./plan-superset.ts";
 import { DEFAULT_GOAL_SETTINGS, readGoalSettings } from "./settings.ts";
 
 const REMOVED_QUEUE_SETTING_WARNING =
@@ -38,7 +39,7 @@ interface GoalLifecycleOptions {
 }
 
 export function registerGoalLifecycle(
-	pi: ExtensionAPI,
+	pi: OmegaAPI,
 	runtime: GoalRuntime,
 	runController: GoalRunController,
 	options: GoalLifecycleOptions = {},
@@ -467,6 +468,15 @@ export function registerGoalLifecycle(
 		// must wait until Pi has persisted the real tool result at this turn boundary.
 		if (runtime.activeGoal?.status !== "active") {
 			runtime.ensureInactiveGoalContextContract(ctx);
+			return;
+		}
+		if (
+			runtime.activeGoal.status === "active" &&
+			runtime.ownsWorkflow(runtime.activeGoal) &&
+			advanceGoalPlan(pi, ctx, runtime.activeGoal, assistantTextOf(event.message as { role?: unknown; content?: unknown }))
+		) {
+			runtime.persistGoal(runtime.activeGoal);
+			runtime.updateStatus(ctx, runtime.activeGoal);
 		}
 	});
 
@@ -530,6 +540,14 @@ export function registerGoalLifecycle(
 		}
 
 		runtime.clearGoalRecoveryForGoal(goalId);
+
+		if (
+			adoptGoalPlan(pi, ctx, runtime.activeGoal, assistantTextOf(finalAssistant)) ||
+			advanceGoalPlan(pi, ctx, runtime.activeGoal, assistantTextOf(finalAssistant))
+		) {
+			runtime.persistGoal(runtime.activeGoal);
+			runtime.updateStatus(ctx, runtime.activeGoal);
+		}
 
 		if (runtime.limitActiveGoalForBudget(ctx, false)) return;
 		if (!runtime.goalToolsAvailable()) {
