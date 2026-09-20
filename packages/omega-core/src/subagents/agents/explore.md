@@ -2,7 +2,7 @@
 name: explore
 description: Project exploration and agent design specialist. When no existing built-in or project agent fits the current task, analyzes repository context and creates a reusable project-level agent
 tools: read, grep, find, ls, bash, write, edit
-thinking: high
+thinking: low
 sessionPreference: persistent
 sessionHint: Use domain-named persistent sessions for the same class of capability gap; after creating an agent, the parent agent uses it in the next subagent call.
 systemPromptMode: replace

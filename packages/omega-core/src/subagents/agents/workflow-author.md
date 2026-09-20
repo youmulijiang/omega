@@ -2,7 +2,7 @@
 name: workflow-author
 description: Converts natural language requirements into constrained Omega workflow DSL scripts
 noTools: true
-thinking: high
+thinking: low
 sessionPreference: ephemeral
 systemPromptMode: replace
 ---

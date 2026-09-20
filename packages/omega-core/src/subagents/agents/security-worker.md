@@ -2,7 +2,7 @@
 name: security-worker
 description: Full-spectrum security subagent. Performs authorized code review, log analysis, OSINT collection, advisory assessment, and web penetration testing; stays read-only unless the task explicitly authorizes changes
 tools: read, grep, find, ls, bash, edit, write, workflow
-thinking: high
+thinking: low
 sessionPreference: either
 systemPromptMode: replace
 ---
