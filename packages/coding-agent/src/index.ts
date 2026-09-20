@@ -118,6 +118,7 @@ export type {
 	ProviderModelConfig,
 	ReadToolCallEvent,
 	RegisteredCommand,
+	RegisteredSettingsItem,
 	RegisteredTool,
 	ResolvedCommand,
 	SessionBeforeCompactEvent,

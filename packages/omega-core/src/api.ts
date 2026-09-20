@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, RegisteredSettingsItem } from "@earendil-works/pi-coding-agent";
 import type { TUI, TuiStopOptions } from "@earendil-works/pi-tui";
 
 export interface TuiClickEvent {
@@ -31,6 +31,13 @@ export interface OmegaAPI extends ExtensionAPI {
 	readonly isOmega: true;
 	/** Register a handler for SGR mouse clicks on a concrete TUI instance. */
 	registerTuiClick(tui: TUI, handler: TuiClickHandler): () => void;
+
+	/**
+	 * 注册一个 /settings 条目（显示在原生设置界面中）。
+	 * currentValue 在每次打开设置界面时调用，保证显示最新值。
+	 * 返回注销函数。
+	 */
+	registerSettings(item: Omit<RegisteredSettingsItem, "onChange"> & { onChange: (value: string) => void }): () => void;
 
 	// ── 未来扩展占位 ──────────────────────────────────────────────
 	// registerSecurityScope(scope: SecurityScope): void;
@@ -106,6 +113,13 @@ function registerTuiClick(tui: TUI, handler: TuiClickHandler): () => void {
 	return () => patch?.handlers.delete(handler);
 }
 
+function registerSettings(
+	pi: ExtensionAPI,
+	item: Omit<RegisteredSettingsItem, "onChange"> & { onChange: (value: string) => void },
+): () => void {
+	return pi.registerSettingsItems([item]);
+}
+
 /**
  * 将 pi 微内核包裹为 OmegaAPI。
  *
@@ -117,6 +131,7 @@ export function createOmegaAPI(pi: ExtensionAPI): OmegaAPI {
 	const omegaExtensions: OmegaExtensions = {
 		isOmega: true,
 		registerTuiClick,
+		registerSettings: (item) => registerSettings(pi, item),
 	};
 
 	return new Proxy(pi as OmegaAPI, {

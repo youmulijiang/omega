@@ -437,13 +437,19 @@ class ThemeSubmenu extends Container {
 	}
 }
 
+/** Extension-contributed settings entries merged into the native selector. */
+export interface ExtensionSettingsEntry {
+	item: SettingItem;
+	onChange: (value: string) => void;
+}
+
 /**
  * Main settings selector component.
  */
 export class SettingsSelectorComponent extends Container {
 	private settingsList: SettingsList;
 
-	constructor(config: SettingsConfig, callbacks: SettingsCallbacks) {
+	constructor(config: SettingsConfig, callbacks: SettingsCallbacks, extensionEntries?: ExtensionSettingsEntry[]) {
 		super();
 
 		const supportsImages = getCapabilities().images;
@@ -820,6 +826,16 @@ export class SettingsSelectorComponent extends Container {
 			values: ["true", "false"],
 		});
 
+		// Extension-contributed entries (appended after all native entries)
+		const extensionItems = new Map<string, (value: string) => void>();
+		if (extensionEntries) {
+			for (const entry of extensionEntries) {
+				if (items.some((item) => item.id === entry.item.id)) continue;
+				items.push(entry.item);
+				extensionItems.set(entry.item.id, entry.onChange);
+			}
+		}
+
 		// Add borders
 		this.addChild(new DynamicBorder());
 
@@ -828,6 +844,11 @@ export class SettingsSelectorComponent extends Container {
 			10,
 			getSettingsListTheme(),
 			(id, newValue) => {
+				const extensionChange = extensionItems.get(id);
+				if (extensionChange) {
+					extensionChange(newValue);
+					return;
+				}
 				switch (id) {
 					case "autocompact":
 						callbacks.onAutoCompactChange(newValue === "true");

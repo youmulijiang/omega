@@ -1263,6 +1263,32 @@ export interface ResolvedCommand extends RegisteredCommand {
 }
 
 // ============================================================================
+// Settings Registration
+// ============================================================================
+
+/**
+ * An extension-contributed entry for the interactive /settings selector.
+ * Rendered as a native SettingItem row; changes are forwarded to the
+ * registering extension via its onChange callback.
+ */
+export interface RegisteredSettingsItem {
+	/** Unique identifier within the registering extension (prefixed with the extension path to avoid collisions). */
+	id: string;
+	/** Display label (left side). */
+	label: string;
+	/** Optional description shown when selected. */
+	description?: string;
+	/** Current value to display (right side). Read fresh each time the selector opens. */
+	currentValue: () => string;
+	/** If provided, Enter/Space cycles through these values. */
+	values?: string[];
+	/** If provided, Enter opens this submenu (same contract as SettingItem.submenu). */
+	submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
+	/** Called when the user changes the value via cycling or a submenu done() result. */
+	onChange: (value: string) => void;
+}
+
+// ============================================================================
 // Extension API
 // ============================================================================
 
@@ -1367,6 +1393,15 @@ export interface ExtensionAPI {
 
 	/** Get the value of a registered CLI flag. */
 	getFlag(name: string): boolean | string | undefined;
+
+	/**
+	 * Register one or more entries for the interactive /settings selector.
+	 * `currentValue` is called each time the selector opens, so entries always
+	 * show fresh state. Returns an unregister function.
+	 */
+	registerSettingsItems(
+		items: Array<Omit<RegisteredSettingsItem, "onChange"> & { onChange: (value: string) => void }>,
+	): () => void;
 
 	// =========================================================================
 	// Message Rendering
@@ -1799,6 +1834,7 @@ export interface Extension {
 	commands: Map<string, RegisteredCommand>;
 	flags: Map<string, ExtensionFlag>;
 	shortcuts: Map<KeyId, ExtensionShortcut>;
+	settingsItems: Map<string, RegisteredSettingsItem>;
 }
 
 /** Result of loading extensions. */

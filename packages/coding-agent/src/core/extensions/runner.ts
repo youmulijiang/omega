@@ -4,13 +4,14 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model, Provider, ProviderHeaders } from "@earendil-works/pi-ai";
-import type { KeyId } from "@earendil-works/pi-tui";
+import type { KeyId, SettingItem } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { SessionManager } from "../session-manager.ts";
+import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import type {
 	BeforeAgentStartEvent,
@@ -700,6 +701,36 @@ export class ExtensionRunner {
 
 	getCommandDiagnostics(): ResourceDiagnostic[] {
 		return this.commandDiagnostics;
+	}
+
+	/**
+	 * Collect settings items contributed by all extensions. Each item is
+	 * scoped by its extension path so ids cannot collide across extensions.
+	 * currentValue is invoked here so the selector always shows fresh state.
+	 */
+	getSettingsItems(): Array<{
+		sourceInfo: SourceInfo;
+		item: SettingItem;
+		onChange: (value: string) => void;
+	}> {
+		const result: Array<{ sourceInfo: SourceInfo; item: SettingItem; onChange: (value: string) => void }> = [];
+		for (const ext of this.extensions) {
+			for (const registered of ext.settingsItems.values()) {
+				result.push({
+					sourceInfo: ext.sourceInfo,
+					item: {
+						id: `${ext.path}::${registered.id}`,
+						label: registered.label,
+						description: registered.description,
+						currentValue: registered.currentValue(),
+						values: registered.values,
+						submenu: registered.submenu,
+					},
+					onChange: registered.onChange,
+				});
+			}
+		}
+		return result;
 	}
 
 	getCommand(name: string): ResolvedCommand | undefined {

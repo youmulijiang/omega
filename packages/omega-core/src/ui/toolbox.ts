@@ -2,8 +2,8 @@ import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { OmegaAPI } from "../api.ts";
 import { formatBashCallHighlighted } from "./bash-highlight.ts";
-import { loadToolboxConfig } from "./toolbox-config.ts";
-import { patchToolBoxFrames } from "./toolbox-frame.ts";
+import { loadToolboxConfig, saveToolboxConfigField } from "./toolbox-config.ts";
+import { patchToolBoxFrames, setCollapseAnchorEnabled } from "./toolbox-frame.ts";
 
 interface BashRenderState {
 	startedAt?: number;
@@ -35,4 +35,21 @@ export function setupToolbox(omega: OmegaAPI): void {
 	if (!config.enabled) return;
 	patchToolBoxFrames(config.collapseAnchor);
 	if (config.highlightBash) registerHighlightedBash(omega, process.cwd());
+	registerToolboxSettings(omega);
+}
+
+/** Expose the collapse-anchor toggle in the native /settings selector. */
+function registerToolboxSettings(omega: OmegaAPI): void {
+	omega.registerSettings({
+		id: "toolbox.collapse-anchor",
+		label: "Toolbox collapse anchor",
+		description: 'Show an "expand more lines" anchor under collapsed tool output',
+		currentValue: () => (loadToolboxConfig().collapseAnchor ? "true" : "false"),
+		values: ["true", "false"],
+		onChange: (value) => {
+			const enabled = value === "true";
+			saveToolboxConfigField("collapseAnchor", enabled);
+			setCollapseAnchorEnabled(enabled);
+		},
+	});
 }

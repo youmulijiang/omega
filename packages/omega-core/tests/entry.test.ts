@@ -22,6 +22,7 @@ describe("omegaExtension", () => {
 			registerMessageRenderer: vi.fn(),
 			registerProvider: vi.fn(),
 			registerTool: (tool: { name: string }) => tools.push(tool.name),
+			registerSettingsItems: vi.fn(() => vi.fn()),
 			sendMessage: vi.fn(),
 		} as unknown as ExtensionAPI;
 

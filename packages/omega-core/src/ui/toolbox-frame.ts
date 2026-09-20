@@ -6,6 +6,14 @@ const BACKGROUND_FILL = /\x1b\[48;[0-9;]*m|\x1b\[(?:4[0-7]|10[0-7])m/g;
 const ANSI = /\x1b\[[0-9;:?]*[ -/]*[@-~]/g;
 const COLLAPSED_CONTENT_LINES = 5;
 
+// Live toggle for the "expand more lines" anchor, changeable from /settings
+// after the prototype patch is already installed.
+let collapseAnchorEnabled = true;
+
+export function setCollapseAnchorEnabled(enabled: boolean): void {
+	collapseAnchorEnabled = enabled;
+}
+
 export function stripBackgroundFills(line: string): string {
 	return line.replace(BACKGROUND_FILL, "");
 }
@@ -80,6 +88,7 @@ type ToolBoxPrototype = ToolBoxInternals & {
 
 /** Install the rounded, transparent, status-colored frame for every tool renderer. */
 export function patchToolBoxFrames(collapseAnchor = true): void {
+	collapseAnchorEnabled = collapseAnchor;
 	const prototype = ToolExecutionComponent.prototype as unknown as ToolBoxPrototype;
 	if (prototype.__omegaToolboxFramed) return;
 	prototype.__omegaToolboxFramed = true;
@@ -140,7 +149,7 @@ export function patchToolBoxFrames(collapseAnchor = true): void {
 				return cache.output;
 
 			const content = collapseToolboxContent(trimBlankEdges(raw), this.expanded, theme);
-			if (collapseAnchor && this.expanded && content.length > 0) {
+			if (collapseAnchorEnabled && this.expanded && content.length > 0) {
 				const anchor = collapseAnchorLine(theme);
 				if (anchor) content.push(anchor);
 			}

@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface ToolboxConfig {
@@ -35,4 +35,29 @@ export function loadToolboxConfig(settingsPath = join(getAgentDir(), "settings.j
 	} catch {
 		return { ...DEFAULT_TOOLBOX_CONFIG };
 	}
+}
+
+/** Persist one `toolbox` field into the agent settings file, preserving other settings. */
+export function saveToolboxConfigField(
+	field: keyof ToolboxConfig,
+	value: boolean,
+	settingsPath = join(getAgentDir(), "settings.json"),
+): void {
+	let settings: Record<string, unknown> = {};
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+		if (typeof parsed === "object" && parsed !== null) {
+			settings = parsed as Record<string, unknown>;
+		}
+	} catch {
+		// Missing or invalid file: start a fresh settings object.
+	}
+	const toolbox =
+		typeof settings.toolbox === "object" && settings.toolbox !== null
+			? { ...(settings.toolbox as Record<string, unknown>) }
+			: {};
+	toolbox[field] = value;
+	settings.toolbox = toolbox;
+	mkdirSync(dirname(settingsPath), { recursive: true });
+	writeFileSync(settingsPath, `${JSON.stringify(settings, null, "\t")}\n`, "utf8");
 }

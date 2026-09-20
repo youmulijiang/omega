@@ -26,6 +26,7 @@ function createApiStub() {
 			registerMessageRenderer: vi.fn(),
 			registerProvider: vi.fn(),
 			registerTool: (tool: { name: string }) => tools.push(tool),
+			registerSettingsItems: vi.fn(() => vi.fn()),
 			sendMessage: vi.fn(),
 			getActiveTools: () => ["read", "bash"],
 			setActiveTools: vi.fn(),

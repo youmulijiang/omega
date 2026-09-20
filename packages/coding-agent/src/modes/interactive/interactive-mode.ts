@@ -4902,6 +4902,7 @@ export class InteractiveMode {
 						this.ui.requestRender();
 					},
 				},
+				this.session.extensionRunner.getSettingsItems(),
 			);
 			return { component: selector, focus: selector.getSettingsList() };
 		});

@@ -43,6 +43,7 @@ import type {
 	MessageRenderer,
 	ProviderConfig,
 	RegisteredCommand,
+	RegisteredSettingsItem,
 	ToolDefinition,
 } from "./types.ts";
 
@@ -343,6 +344,27 @@ function createExtensionAPI(
 			extension.messageRenderers.set(customType, renderer as MessageRenderer);
 		},
 
+		registerSettingsItems(items): () => void {
+			assertActive();
+			const registered: Array<{ key: string; item: RegisteredSettingsItem }> = [];
+			for (const item of items) {
+				if (!item.id || typeof item.id !== "string") {
+					throw new Error(`Settings item registered by extension "${extension.path}" must have a non-empty id.`);
+				}
+				if (extension.settingsItems.has(item.id)) {
+					throw new Error(`Settings item "${item.id}" registered twice by extension "${extension.path}".`);
+				}
+				const stored: RegisteredSettingsItem = { ...item };
+				extension.settingsItems.set(item.id, stored);
+				registered.push({ key: item.id, item: stored });
+			}
+			return () => {
+				for (const { key } of registered) {
+					extension.settingsItems.delete(key);
+				}
+			};
+		},
+
 		registerMarkdownTransformer(transformer: MarkdownTransformer): void {
 			assertActive();
 			extension.markdownTransformer = transformer;
@@ -542,6 +564,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		commands: new Map(),
 		flags: new Map(),
 		shortcuts: new Map(),
+		settingsItems: new Map(),
 	};
 }
 

@@ -120,6 +120,7 @@ export type {
 	ReadToolResultEvent,
 	// Commands
 	RegisteredCommand,
+	RegisteredSettingsItem,
 	RegisteredTool,
 	ReplacedSessionContext,
 	ResolvedCommand,
