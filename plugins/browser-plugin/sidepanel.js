@@ -147,6 +147,7 @@ function renderStatusLine(connected) {
 	const model = agent?.sessionInfo?.model?.name;
 	const sessionId = agent?.sessionInfo?.sessionId ?? activeConversation;
 	statusEl.textContent = connected ? `● 已连接 · ${sessionId ?? ""}` : "● 未连接";
+	statusEl.classList.toggle("connected", connected);
 	modelTagEl.textContent = model ?? "";
 }
 

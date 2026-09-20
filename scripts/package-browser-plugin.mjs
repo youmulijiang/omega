@@ -12,7 +12,7 @@ mkdirSync(outDir, { recursive: true });
 
 if (process.platform === "win32") {
 	execFileSync(
-		"powershell.exe",
+		"pwsh.exe",
 		["-NoProfile", "-Command", `Compress-Archive -Path (Join-Path '${sourceDir.replaceAll("'", "''")}' '*') -DestinationPath '${archivePath}' -Force`],
 		{ stdio: "inherit" },
 	);

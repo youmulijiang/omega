@@ -18,6 +18,7 @@
   "scripts": {
     "clean": "shx rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json && shx cp -r src/subagents/agents dist/subagents/agents && shx cp -r src/prompts/*.md dist/prompts && shx cp src/background/core/delegate/hook-contract-evidence.json dist/background/core/delegate/hook-contract-evidence.json && shx chmod +x dist/cli.js dist/bun/cli.js",
+    "build:browser-plugin": "node ../../scripts/package-browser-plugin.mjs",
     "test": "vitest --run"
   },
   "dependencies": {
