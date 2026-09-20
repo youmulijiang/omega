@@ -2233,8 +2233,12 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 		}
 
 		// Process Kimi For Coding models
-		if (data["kimi-for-coding"]?.models) {
-			const kimiModels = data["kimi-for-coding"].models as Record<string, ModelsDevModel>;
+		// models.dev renamed the upstream entry kimi-for-coding → kimi-code-plan-global
+		// / kimi-code-plan-cn; the model ids themselves are unchanged. Prefer the new
+		// keys and fall back to the old one so a catalog rollback cannot break the build.
+		const kimiCodingSource = data["kimi-code-plan-global"] ?? data["kimi-code-plan-cn"] ?? data["kimi-for-coding"];
+		if (kimiCodingSource?.models) {
+			const kimiModels = kimiCodingSource.models as Record<string, ModelsDevModel>;
 			const hasCanonicalModel = Object.prototype.hasOwnProperty.call(kimiModels, "kimi-for-coding");
 
 			const kimiAliases = new Set(["k2p5", "k2p6", "k2p7"]);
