@@ -11,8 +11,20 @@ import { OmegaMcpToolCache } from "../src/mcp/tool-cache.ts";
 const temporaryDirectories: string[] = [];
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-mcp-server.mjs");
 
-afterEach(() => {
-	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+afterEach(async () => {
+	for (const directory of temporaryDirectories.splice(0)) {
+		// Windows keeps handles open briefly after a spawned MCP server exits;
+		// retry so a timed-out child cannot fail cleanup with EPERM.
+		for (let attempt = 0; attempt < 10; attempt++) {
+			try {
+				rmSync(directory, { recursive: true, force: true });
+				break;
+			} catch (error) {
+				if (attempt === 9) throw error;
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+		}
+	}
 });
 
 async function waitFor(check: () => boolean, timeout = 2_000): Promise<void> {

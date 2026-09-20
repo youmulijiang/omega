@@ -91,7 +91,7 @@ describe("Omega subagent discovery", () => {
 		expect(explorer).toMatchObject({
 			source: "builtin",
 			tools: ["read", "grep", "find", "ls", "bash", "write", "edit"],
-			thinking: "high",
+			thinking: "low",
 		});
 		expect(explorer?.systemPrompt).toContain(".omega/agents/");
 		expect(explorer?.systemPrompt).toContain("never rewrite the existing file");
@@ -426,7 +426,8 @@ describe("Omega subagent integration", () => {
 	});
 
 	it("preserves the source loader when spawning a TypeScript Omega child", () => {
-		const sourceCli = path.resolve("packages/omega-core/src/cli.ts");
+		const sourceCli = path.join(createTemporaryProject(), "cli.ts");
+		fs.writeFileSync(sourceCli, "// fixture entry");
 		expect(
 			resolvePiSpawn({
 				execPath: "C:\\nodejs\\node.exe",
@@ -446,7 +447,8 @@ describe("Omega subagent integration", () => {
 	});
 
 	it("does not copy parent Node flags into a built JavaScript child", () => {
-		const builtCli = path.resolve("packages/omega-core/dist/cli.js");
+		const builtCli = path.join(createTemporaryProject(), "cli.js");
+		fs.writeFileSync(builtCli, "// fixture entry");
 		expect(
 			resolvePiSpawn({
 				execPath: "C:\\nodejs\\node.exe",
