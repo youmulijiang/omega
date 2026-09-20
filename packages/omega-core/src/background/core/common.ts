@@ -182,11 +182,7 @@ export function deriveCompletionDeliveryGuidance(
 			mode: "notification-and-wake",
 			notificationEnabled: true,
 			automaticWakeEnabled: true,
-			text: [
-				"Terminal notification: enabled.",
-				"Automatic follow-up turn: enabled.",
-				"Next action: do not poll or sleep merely to wait; continue only independent useful work, otherwise end this turn and wait for <background-task-notification>.",
-			].join("\n"),
+			text: "Completion will notify and start a follow-up turn; do not poll or sleep to wait.",
 		};
 	}
 
@@ -195,11 +191,7 @@ export function deriveCompletionDeliveryGuidance(
 			mode: "notification-only",
 			notificationEnabled: true,
 			automaticWakeEnabled: false,
-			text: [
-				"Terminal notification: enabled.",
-				"Automatic follow-up turn: disabled. The terminal notification will be delivered, but it will not start an agent turn.",
-				"Next action: automatic wake-up was explicitly disabled; use bg_status/bg_logs only when deliberate monitoring is required, without tight polling.",
-			].join("\n"),
+			text: "Completion will notify without waking the agent; inspect status or logs only when needed.",
 		};
 	}
 
@@ -207,13 +199,9 @@ export function deriveCompletionDeliveryGuidance(
 		mode: "manual-monitoring",
 		notificationEnabled: false,
 		automaticWakeEnabled: false,
-		text: [
-			"Terminal notification: disabled.",
-			triggerOnCompletion
-				? "Automatic follow-up turn: disabled because terminal notifications are disabled. triggerOnCompletion has no effect while notifyOnCompletion is false."
-				: "Automatic follow-up turn: disabled.",
-			"Next action: completion delivery was explicitly disabled; use bg_status/bg_logs only for deliberate manual monitoring, without tight polling.",
-		].join("\n"),
+		text: triggerOnCompletion
+			? "Completion notification is disabled, so follow-up wake is also disabled; monitor manually when needed."
+			: "Completion notification and follow-up wake are disabled; monitor manually when needed.",
 	};
 }
 

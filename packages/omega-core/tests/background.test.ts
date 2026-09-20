@@ -8,7 +8,11 @@ import type { OmegaAPI } from "../src/api.ts";
 import { registerBackground } from "../src/background/index.ts";
 import { resolveAnthropicAttributionExtensionPath } from "../src/background/core/anthropic-attribution-path.ts";
 import { resolveDelegateChildExtensionPath } from "../src/background/core/delegate/launch.ts";
-import { BackgroundTaskRegistry } from "../src/background/core/registry.ts";
+import {
+	BackgroundTaskRegistry,
+	type CompletionNotificationMessage,
+	type CompletionNotificationOptions,
+} from "../src/background/core/registry.ts";
 import { resolveFusionChildExtensionPath } from "../src/background/core/fusion/pi-child.ts";
 
 type CommandHandler = Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
@@ -78,6 +82,32 @@ describe("Omega background integration", () => {
 		}
 	});
 
+	it("keeps background tool guidance short and fixes delegate capability to inspect", () => {
+		const tools: Array<{
+			name: string;
+			parameters?: { properties?: Record<string, unknown> };
+			promptGuidelines?: string[];
+		}> = [];
+		const pi = {
+			appendEntry: vi.fn(),
+			events: { emit: vi.fn(), on: vi.fn(() => () => undefined) },
+			on: vi.fn(),
+			registerCommand: vi.fn(),
+			registerMessageRenderer: vi.fn(),
+			registerProvider: vi.fn(),
+			registerShortcut: vi.fn(),
+			registerTool: (tool: (typeof tools)[number]) => tools.push(tool),
+			sendMessage: vi.fn(),
+		} as unknown as ExtensionAPI;
+		registerBackground(pi as unknown as OmegaAPI);
+		const delegate = tools.find((tool) => tool.name === "bg_delegate");
+		const run = tools.find((tool) => tool.name === "bg_run");
+		expect(delegate?.parameters?.properties).not.toHaveProperty("capability");
+		expect(delegate?.parameters?.properties).not.toHaveProperty("autoDeliver");
+		expect(delegate?.promptGuidelines).toHaveLength(2);
+		expect(run?.promptGuidelines).toHaveLength(2);
+	});
+
 	it("clears one finished notice by task name and all notices when omitted", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "omega-background-clear-"));
 		temporaryDirectories.push(cwd);
@@ -118,16 +148,23 @@ describe("Omega background integration", () => {
 	it("runs a shell task, stores Omega artifacts, and returns bounded logs", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "omega-background-"));
 		temporaryDirectories.push(cwd);
-		const notifications: unknown[] = [];
+		const notifications: Array<{
+			message: CompletionNotificationMessage;
+			options: CompletionNotificationOptions;
+		}> = [];
 		const terminals: unknown[] = [];
 		const registry = new BackgroundTaskRegistry({
 			makeTaskId: () => "task-one",
-			sendCompletionNotification: (message) => notifications.push(message),
+			sendCompletionNotification: (message, options) => notifications.push({ message, options }),
 			publishTerminal: (task) => terminals.push(task),
 		});
 		const context = { cwd, sessionId: "test-session", modelRegistry: { getAll: () => [] } };
 		const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("process.stdout.write('omega-output')")}`;
-		const task = await registry.startTask(context, command, { name: "test task", notifyOnCompletion: true });
+		const task = await registry.startTask(context, command, {
+			name: "test task",
+			notifyOnCompletion: true,
+			triggerOnCompletion: true,
+		});
 		await new Promise<void>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error("background test task did not finish")), 5000);
 			const poll = (): void => {
@@ -144,6 +181,9 @@ describe("Omega background integration", () => {
 		expect((await registry.getTaskLogs(task, 5, true)).text).toContain("utput");
 		expect(await readFile(task.metadataAbsPath, "utf8")).toContain('"status": "completed"');
 		expect(notifications).toHaveLength(1);
+		expect(notifications[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+		expect(notifications[0]?.message.content).toContain("<guidance>Terminal state is durable;");
+		expect(notifications[0]?.message.content).not.toContain("<summary>");
 		expect(terminals).toHaveLength(1);
 	});
 });

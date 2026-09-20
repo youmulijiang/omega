@@ -2185,11 +2185,15 @@ export class BackgroundTaskRegistry {
 		const error = task.error ? `\n  <error>${escapeXml(task.error)}</error>` : "";
 		const taskName = taskDisplayName(task);
 		const guidance =
-			task.fusion === undefined
-				? "Terminal state and output metadata are durable. Do not call bg_status to reconfirm; use bg_logs only if output is needed."
-				: task.status === "completed"
-					? `Fusion result is durably committed at ${task.fusion.artifactDir}. Call bg_result({taskId:${JSON.stringify(task.id)}}) once to retrieve it; do not poll.`
-					: `Fusion ended ${task.status}. Inspect the preserved artifacts at ${task.fusion.artifactDir}; do not poll.`;
+			task.delegate !== undefined
+				? task.status === "completed"
+					? `Call bg_result({taskId:${JSON.stringify(task.id)}}) once for the verified answer; do not poll.`
+					: `Delegate ended ${task.status}; inspect preserved artifacts at ${task.delegate.artifactDir}.`
+				: task.fusion === undefined
+					? "Terminal state is durable; read logs only if output is needed, without polling."
+					: task.status === "completed"
+						? `Call bg_result({taskId:${JSON.stringify(task.id)}}) once for the verified answer; do not poll.`
+						: `Fusion ended ${task.status}; inspect preserved artifacts at ${task.fusion.artifactDir}.`;
 		const content = [
 			"<background-task-notification>",
 			`  <task-id>${task.id}</task-id>`,
@@ -2198,7 +2202,6 @@ export class BackgroundTaskRegistry {
 			exit,
 			error,
 			`  <output-file>${escapeXml(task.outputPath)}</output-file>`,
-			`  <summary>${escapeXml(`Background task ${JSON.stringify(taskName)} ${task.status}`)}</summary>`,
 			`  <guidance>${escapeXml(guidance)}</guidance>`,
 			"</background-task-notification>",
 		]

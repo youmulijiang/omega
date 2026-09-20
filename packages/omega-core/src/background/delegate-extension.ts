@@ -21,8 +21,6 @@ import {
 	prepareDelegateLaunch,
 } from "./core/delegate/runner.ts";
 import {
-	DELEGATE_AUTO_DELIVER_MODES,
-	DELEGATE_CAPABILITIES,
 	DELEGATE_EXTENSION_MODES,
 	DELEGATE_RESULT_TOOL_NAME,
 	DELEGATE_TOOL_NAME,
@@ -82,15 +80,9 @@ export const DelegateParams = Type.Object(
 				},
 			),
 		),
-		capability: Type.Optional(
-			Type.String({
-				description: `Capability profile. Only "inspect" (read/search/list, no shell, no writes, no network, no recursion) is supported.`,
-			}),
-		),
 		extensionMode: Type.Optional(
 			Type.String({
-				description:
-					"Extension discovery: isolated | ambient. Default isolated. Ambient is for extension-registered providers and executes arbitrary discovered extension code, weakening process isolation.",
+				description: "isolated (default) | ambient; ambient executes discovered extension code.",
 			}),
 		),
 		maxTurns: Type.Optional(
@@ -106,12 +98,6 @@ export const DelegateParams = Type.Object(
 		timeoutSeconds: Type.Optional(
 			Type.Number({
 				description: `Wall-clock timeout. Default ${String(DELEGATE_DEFAULT_TIMEOUT_SECONDS)}.`,
-			}),
-		),
-		autoDeliver: Type.Optional(
-			Type.String({
-				description:
-					"Whether the completion notification carries the answer: never | when_small | always. Default never; retrieve with bg_result.",
 			}),
 		),
 		notifyOnCompletion: Type.Optional(
@@ -146,12 +132,10 @@ const DELEGATE_PARAM_KEYS = new Set([
 	"name",
 	"prompt",
 	"route",
-	"capability",
 	"extensionMode",
 	"maxTurns",
 	"maxToolCalls",
 	"timeoutSeconds",
-	"autoDeliver",
 	"notifyOnCompletion",
 	"triggerOnCompletion",
 ]);
@@ -220,28 +204,10 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireCapability(value: unknown): DelegateCapability {
-	if (value === undefined) return "inspect";
-	if (value === "inspect") return "inspect";
-	throw new DelegateError(
-		`bg_delegate capability must be one of ${DELEGATE_CAPABILITIES.join(", ")}. Writable profiles are deliberately out of scope in this version.`,
-		{ code: "invalid_arguments", childCreated: false },
-	);
-}
-
 function requireExtensionMode(value: unknown): DelegateExtensionMode {
 	if (value === undefined) return "isolated";
 	if (value === "isolated" || value === "ambient") return value;
 	throw new DelegateError(`bg_delegate extensionMode must be one of ${DELEGATE_EXTENSION_MODES.join(", ")}`, {
-		code: "invalid_arguments",
-		childCreated: false,
-	});
-}
-
-function requireAutoDeliver(value: unknown): DelegateAutoDeliverMode {
-	if (value === undefined) return "never";
-	if (value === "never" || value === "when_small" || value === "always") return value;
-	throw new DelegateError(`bg_delegate autoDeliver must be one of ${DELEGATE_AUTO_DELIVER_MODES.join(", ")}`, {
 		code: "invalid_arguments",
 		childCreated: false,
 	});
@@ -325,16 +291,11 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 		name: DELEGATE_TOOL_NAME,
 		label: "Background Delegate",
 		description:
-			"Launch one background Pi agent seeded with a frozen projection of the current conversation, then return a launch receipt immediately. The child has its own session, a route pinned at launch that is never substituted, and read-only tools. Extension discovery is isolated by default; ambient mode supports extension-registered providers but executes arbitrary discovered extension code. Retrieve its verified answer with bg_result.",
-		promptSnippet: "Delegate an investigation to a background agent that already has this conversation as context",
+			"Launch an inspect-only background agent with this conversation as context; retrieve its answer with bg_result.",
+		promptSnippet: "Delegate a read-only investigation in the background",
 		promptGuidelines: [
-			"Use bg_delegate when work should continue in the background and the worker needs what you already know: it is seeded with a projection of this conversation.",
-			"The prompt is authoritative. State exactly what you want investigated and what the answer should contain.",
-			"The delegate is inspect-only at the model-visible tool boundary: it can read, search, and list files, but cannot run shell commands, edit or write files, use the network, or delegate further.",
-			'Extension discovery is isolated by default. Use extensionMode:"ambient" only when the pinned provider is registered by an ambient user/project extension.',
-			"Ambient mode executes arbitrary discovered extension code in the child process. Tool allowlists do not sandbox extension code, so ambient mode weakens inspect-only process isolation.",
-			"Facts that exist only inside omitted tool output are not available to the delegate. Restate such findings in the prompt.",
-			"bg_delegate returns immediately. Do not poll; retrieve the answer with bg_result after the terminal notification arrives.",
+			"Make the prompt self-contained: tool output is omitted from the child's projected context.",
+			"Do not poll; call bg_result after the terminal notification.",
 		],
 		parameters: DelegateParams,
 		prepareArguments(args): DelegateParamsValue {
@@ -365,9 +326,7 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 			const prepared: DelegateParamsValue = { name, prompt };
 			const route = requireRoute(args.route);
 			if (route !== undefined) prepared.route = route;
-			prepared.capability = requireCapability(args.capability);
 			prepared.extensionMode = requireExtensionMode(args.extensionMode);
-			prepared.autoDeliver = requireAutoDeliver(args.autoDeliver);
 			const maxTurns = optionalPositiveInteger(args.maxTurns, "maxTurns");
 			if (maxTurns !== undefined) prepared.maxTurns = maxTurns;
 			const maxToolCalls = optionalPositiveInteger(args.maxToolCalls, "maxToolCalls");
@@ -381,9 +340,9 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 			return prepared;
 		},
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
-			const capability = requireCapability(params.capability);
+			const capability: DelegateCapability = "inspect";
 			const extensionMode = requireExtensionMode(params.extensionMode);
-			const autoDeliver = requireAutoDeliver(params.autoDeliver);
+			const autoDeliver: DelegateAutoDeliverMode = "never";
 			const hookEvidence = await loadEvidence();
 			const route = resolveDelegateRoute({
 				requested: params.route,
@@ -459,21 +418,14 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 			return {
 				content: textContent(
 					[
-						`Started delegate ${params.name} (${task.id})`,
-						`Route pinned: ${route.qualified_id} (${route.origin}); it is never substituted.`,
-						`Child session: ${prepared.preflight.childSessionId} (separate from this session)`,
-						`Artifacts: ${prepared.facts.artifactDir}`,
-						`Seed: ${String(Buffer.byteLength(prepared.preflight.seed.serialized, "utf8"))} bytes, sha256 ${prepared.facts.seedSha256}`,
-						`Child prompt: ${String(prepared.preflight.plan.child_prompt_utf8_bytes)} bytes; launch estimate ${String(prepared.preflight.plan.launch_input_tokens_upper_bound)} / ${String(prepared.preflight.plan.route.allowed_input_tokens)} allowed input tokens; protected retained-growth runway ${String(prepared.preflight.plan.retained_growth_budget_tokens)} tokens.`,
-						`Estimator: family ${prepared.facts.budget.family}, source ${prepared.facts.budget.rate_source.source}, rate ${String(prepared.facts.budget.rate_source.effective_rate_bytes_per_token_x100)}/100 B/tok + ${String(prepared.facts.budget.rate_source.affine_f_tokens)} tokens${prepared.facts.budget.rate_source.warning === null ? "" : `; warning: ${prepared.facts.budget.rate_source.warning}`}`,
-						`Capability: ${capability} (read/search/list only)`,
-						`Extension mode: ${extensionMode}${extensionMode === "ambient" ? " — WARNING: arbitrary discovered extension code executes in the child; the tool allowlist does not sandbox it, so inspect-only process isolation is weakened." : " (ambient extension discovery disabled)"}`,
-						`Limits: ${String(prepared.preflight.limits.max_turns)} turns, ${String(prepared.preflight.limits.max_tool_calls)} tool calls, ${String(prepared.preflight.limits.timeout_seconds)}s`,
-						`Auto-deliver: ${autoDeliver}`,
+						`Started delegate ${params.name} (${task.id}) on ${route.qualified_id}; inspect-only, ${extensionMode} extensions.`,
+						...(extensionMode === "ambient"
+							? ["Warning: ambient extensions execute arbitrary code; the tool allowlist does not sandbox them."]
+							: []),
 						launchOptions.notifyOnCompletion
-							? `Terminal notification: enabled.${launchOptions.triggerOnCompletion ? " It will start a follow-up turn." : " It will not start a turn."}`
-							: "Terminal notification: disabled.",
-						`Retrieve the verified answer with ${DELEGATE_RESULT_TOOL_NAME}({taskId:"${task.id}"}). Do not poll.`,
+							? `After the terminal notification${launchOptions.triggerOnCompletion ? " wakes this agent" : " arrives without waking this agent"}, call ${DELEGATE_RESULT_TOOL_NAME}({taskId:"${task.id}"}); do not poll.`
+							: `Notification disabled; monitor deliberately, then call ${DELEGATE_RESULT_TOOL_NAME}({taskId:"${task.id}"}).`,
+						`Diagnostics: ${prepared.facts.artifactDir} (route, budget, limits and hashes in details).`,
 					].join("\n"),
 				),
 				details,
@@ -499,13 +451,9 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 	pi.registerTool<typeof ResultParams, BackgroundResultDetails>({
 		name: DELEGATE_RESULT_TOOL_NAME,
 		label: "Background Result",
-		description:
-			"Retrieve a hash-verified result from a bg_delegate or background Fusion task. Never blocks: a running task returns a typed not-ready result. Oversized answers are never truncated.",
-		promptSnippet: "Retrieve the verified answer from a completed delegate or Fusion task",
-		promptGuidelines: [
-			"Call bg_result once the delegate or Fusion terminal notification has arrived. It never blocks and must not be polled.",
-			"A not-ready result means the task is still running; end the turn and wait for the notification.",
-		],
+		description: "Retrieve a verified delegate or Fusion answer after its terminal notification.",
+		promptSnippet: "Retrieve a completed background agent's answer",
+		promptGuidelines: ["Do not poll; if still running, end the turn and wait for the notification."],
 		parameters: ResultParams,
 		prepareArguments(args): ResultParamsValue {
 			if (!isRecord(args))
@@ -717,13 +665,7 @@ export function registerDelegateExtension(pi: ExtensionAPI, deps: DelegateExtens
 				usage: { status: verified.package.usage.status },
 				artifact_dir: facts.artifactDir,
 			};
-			const header = [
-				`Delegate ${task.id} completed on ${verified.package.route.provider}/${verified.package.route.model}.`,
-				`Answer: ${String(verified.package.answer.byte_length)} bytes, sha256 ${verified.package.answer.sha256} (verified).`,
-				`Turns: ${String(verified.package.turns)} · tool calls: ${String(verified.package.tool_calls)} · usage: ${verified.package.usage.status}`,
-				`Artifacts: ${facts.artifactDir}`,
-				`Estimator: family ${facts.budget.family}, source ${facts.budget.rate_source.source}, rate ${String(facts.budget.rate_source.effective_rate_bytes_per_token_x100)}/100 B/tok + ${String(facts.budget.rate_source.affine_f_tokens)} tokens${facts.budget.rate_source.warning === null ? "" : `; warning: ${facts.budget.rate_source.warning}`}`,
-			].join("\n");
+			const header = `Delegate ${task.id} completed; ${String(verified.package.answer.byte_length)} verified bytes. Diagnostics: ${facts.artifactDir} (hash, route, usage and budget in details).`;
 			if (decision.mode === "artifact") {
 				return {
 					content: textContent(
