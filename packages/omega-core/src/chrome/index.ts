@@ -80,6 +80,7 @@ export function registerChrome(omega: OmegaAPI) {
 
 	omega.registerCommand("chrome-devtools", {
 		description: "Open Chrome DevTools help and tool controls",
+		showSourceTag: false,
 		getArgumentCompletions: (prefix) => commandCompletions(prefix),
 		handler: async (args, ctx) => {
 			setChromeDevtoolsSessionOwner(omega, ctx.sessionManager);

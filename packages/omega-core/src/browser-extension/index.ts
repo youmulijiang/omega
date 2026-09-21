@@ -111,6 +111,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 
 	omega.registerCommand("browser-bridge", {
 		description: "Control the Chrome extension bridge for browser control",
+		showSourceTag: false,
 		handler: async (args, ctx) => {
 			commandCtx = ctx;
 			await handleBrowserBridgeCommand(args, ctx);
