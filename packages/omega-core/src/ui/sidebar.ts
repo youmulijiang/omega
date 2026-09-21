@@ -634,8 +634,15 @@ export function setupSidebar(omega: OmegaAPI): void {
 	const refresh = (ctx: ExtensionContext) => sidebar?.updateContext(ctx);
 	const mount = (ctx: ExtensionContext) => {
 		currentContext = ctx;
+		// The sidebar API is an Omega fork addition; stock npm pi builds lack it,
+		// so skip mounting instead of throwing during startup.
+		const setSidebar = (ctx.ui as Partial<Pick<ExtensionContext["ui"], "setSidebar">>).setSidebar;
+		if (typeof setSidebar !== "function") {
+			sidebar = undefined;
+			return;
+		}
 		if (!enabled) {
-			ctx.ui.setSidebar(undefined);
+			setSidebar.call(ctx.ui, undefined);
 			sidebar = undefined;
 			return;
 		}
@@ -646,7 +653,8 @@ export function setupSidebar(omega: OmegaAPI): void {
 		const artExpanded = sidebar?.isArtExpanded() ?? true;
 		const mcpExpanded = sidebar?.isMcpExpanded() ?? true;
 		sidebar?.blur();
-		ctx.ui.setSidebar(
+		setSidebar.call(
+			ctx.ui,
 			(tui, theme, footerData) => {
 				sidebar = new OmegaSidebar(tui, theme, footerData, ctx, Date.now, Math.max(100, width + 40), side);
 				sidebar.selectTab(selectedTab);

@@ -117,7 +117,12 @@ function registerSettings(
 	pi: ExtensionAPI,
 	item: Omit<RegisteredSettingsItem, "onChange"> & { onChange: (value: string) => void },
 ): () => void {
-	return pi.registerSettingsItems([item]);
+	// Stock pi builds published to npm do not expose the settings-registration
+	// API (it is an Omega fork addition). Degrade to a no-op so the extension
+	// still loads instead of failing at startup.
+	const register = (pi as Partial<Pick<ExtensionAPI, "registerSettingsItems">>).registerSettingsItems;
+	if (typeof register !== "function") return () => {};
+	return register.call(pi, [item]);
 }
 
 /**
