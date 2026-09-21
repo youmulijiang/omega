@@ -3,6 +3,7 @@ import {
 	clampThinkingLevel,
 	getSupportedThinkingLevels,
 	type Model,
+	normalizeContext,
 	type ProviderHeaders,
 } from "@earendil-works/pi-ai";
 import { BorderedLoader, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -66,7 +67,7 @@ export function createModelRegistryCompleteSimple(modelRegistry: BtwProviderRegi
 	return async (model, context, options) => {
 		const provider = modelRegistry.getProvider(model.provider);
 		if (!provider) throw new Error(`No provider registered for model provider: ${model.provider}`);
-		return provider.streamSimple(model, context, options).result();
+		return provider.streamSimple(model, normalizeContext(context), options).result();
 	};
 }
 
