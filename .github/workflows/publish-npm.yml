@@ -1,0 +1,93 @@
+name: Publish npm packages
+
+# Publishes the Omega fork of pi-coding-agent and the omega CLI to npm.
+#
+# omega depends on a patched coding-agent, which npm does not carry under the
+# upstream name, so the fork is published separately and omega aliases it. The
+# fork must reach the registry before omega, otherwise omega's dependency cannot
+# resolve; scripts/publish-omega-forks.mjs enforces that order.
+#
+# Requires the NPM_TOKEN repository secret: an npm automation token with publish
+# rights for the @youmulijiang scope.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to publish (for example v0.1.1)'
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-publish-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Validate OMEGA version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vX.Y.Z: $RELEASE_TAG"
+            exit 1
+          fi
+
+          expected_version="${RELEASE_TAG#v}"
+          package_version="$(node -p "require('./packages/omega-core/package.json').version")"
+          if [[ "$package_version" != "$expected_version" ]]; then
+            echo "::error::Tag $RELEASE_TAG does not match @youmulijiang/omega version $package_version"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Hydrate release model data
+        run: npm run hydrate:model-data
+
+      - name: Build workspace packages
+        run: npm run build:offline
+
+      - name: Test omega-core
+        run: npm --prefix packages/omega-core run test
+
+      # The staging script rewrites the fork name and omega's dependency alias
+      # into the published artifacts only, so the repository keeps upstream
+      # package names and `git merge upstream/main` stays conflict-free.
+      - name: Publish fork and omega
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/publish-omega-forks.mjs --no-build

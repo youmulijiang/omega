@@ -106,6 +106,9 @@ function buildPackage(directory) {
 
 /** Copy publishable entries into a staging directory, skipping absent ones. */
 function stage(directory, entries) {
+	if (!existsSync(join(directory, "dist"))) {
+		throw new Error(`Missing ${join(directory, "dist")}; build the workspace before publishing.`);
+	}
 	const stageDir = mkdtempSync(join(tmpdir(), "omega-publish-"));
 	for (const entry of entries) {
 		const source = join(directory, entry);
