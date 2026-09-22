@@ -5,13 +5,23 @@ import { describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../../coding-agent/src/core/keybindings.ts";
 import type { OmegaAPI } from "../src/api.ts";
 import { type McpStatusEntry, MCP_STATUS_CHANNEL } from "../src/mcp/status-events.ts";
-import { OmegaSidebar, setupSidebar } from "../src/ui/sidebar.ts";
+import { OmegaSidebar, setupSidebar, sidebarWidthForTerminal } from "../src/ui/sidebar.ts";
 import { renderAsciiGlobe, renderAttackMap, renderTerminalScene, SIDEBAR_CONTINENTS, visibleGlobeLabels } from "../src/ui/sidebar-art.ts";
 
 const plainTheme = {
 	fg: (_color: string, value: string) => value,
 	bold: (value: string) => value,
 } as Theme;
+
+/** Pin the terminal width the adaptive sizing reads from process.stdout. */
+function setTerminalColumns(columns: number): () => void {
+	const original = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+	Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true, writable: true });
+	return () => {
+		if (original) Object.defineProperty(process.stdout, "columns", original);
+		else Reflect.deleteProperty(process.stdout, "columns");
+	};
+}
 
 function createFixture(entries: unknown[] = [], side: "left" | "right" = "right") {
 	const requestRender = vi.fn();
@@ -69,8 +79,23 @@ function click(x: number, y: number): TuiMouseEvent {
 	};
 }
 
+describe("adaptive sidebar width", () => {
+	it("scales with the terminal, clamps to bounds, and never exceeds a third of the screen", () => {
+		expect(sidebarWidthForTerminal(80)).toBe(28);
+		expect(sidebarWidthForTerminal(100)).toBe(30);
+		expect(sidebarWidthForTerminal(120)).toBe(36);
+		expect(sidebarWidthForTerminal(160)).toBe(48);
+		expect(sidebarWidthForTerminal(200)).toBe(60);
+		// Wide terminals stop growing so the transcript keeps most of the width.
+		expect(sidebarWidthForTerminal(320)).toBe(60);
+		// Unknown or degenerate sizes fall back to a typical terminal.
+		expect(sidebarWidthForTerminal(Number.NaN)).toBe(36);
+		expect(sidebarWidthForTerminal(0)).toBe(36);
+	});
+});
+
 describe("Omega sidebar", () => {
-	it("registers on/off/width commands and applies the width on remount", async () => {
+	it("registers on/off/width commands, auto-sizes to the terminal, and applies a manual width", async () => {
 		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		let command: ((args: string, ctx: unknown) => Promise<void>) | undefined;
 		const setSidebar = vi.fn();
@@ -84,33 +109,118 @@ describe("Omega sidebar", () => {
 			},
 			events: { on: () => () => {}, emit: vi.fn() },
 		} as unknown as OmegaAPI;
-		setupSidebar(omega);
-		handlers.get("session_start")?.({}, ctx);
-		expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
-			width: 44,
-			side: "right",
-			minTerminalWidth: 100,
-			minTerminalHeight: 18,
-		});
-		await command?.("off", ctx);
-		expect(setSidebar).toHaveBeenLastCalledWith(undefined);
-		await command?.("wight 62", ctx);
-		await command?.("on", ctx);
-		expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
-			width: 62,
-			side: "right",
-			minTerminalWidth: 102,
-			minTerminalHeight: 18,
-		});
-		await command?.("left", ctx);
-		expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
-			width: 62,
-			side: "left",
-			minTerminalWidth: 102,
-			minTerminalHeight: 18,
-		});
-		await command?.("width 81", ctx);
-		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("24 to 80"), "error");
+		const restoreColumns = setTerminalColumns(120);
+		try {
+			setupSidebar(omega);
+			handlers.get("session_start")?.({}, ctx);
+			// Auto width follows the terminal: 120 columns -> 36.
+			expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
+				width: 36,
+				side: "right",
+				minTerminalWidth: 90,
+				minTerminalHeight: 18,
+			});
+			await command?.("off", ctx);
+			expect(setSidebar).toHaveBeenLastCalledWith(undefined);
+			await command?.("wight 62", ctx);
+			await command?.("on", ctx);
+			expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
+				width: 62,
+				side: "right",
+				minTerminalWidth: 102,
+				minTerminalHeight: 18,
+			});
+			await command?.("left", ctx);
+			expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
+				width: 62,
+				side: "left",
+				minTerminalWidth: 102,
+				minTerminalHeight: 18,
+			});
+			// "auto" hands sizing back to the terminal.
+			await command?.("width auto", ctx);
+			expect(setSidebar).toHaveBeenLastCalledWith(expect.any(Function), {
+				width: 36,
+				side: "left",
+				minTerminalWidth: 90,
+				minTerminalHeight: 18,
+			});
+			await command?.("width 81", ctx);
+			expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("24 to 80"), "error");
+		} finally {
+			restoreColumns();
+		}
+	});
+
+	it("re-mounts with a new width when the terminal resizes", async () => {
+		vi.useFakeTimers();
+		const handlers = new Map<string, (...args: unknown[]) => unknown>();
+		let mounted: OmegaSidebar | undefined;
+		const widths: number[] = [];
+		const terminal = { columns: 120, rows: 28 };
+		const tui = {
+			mode: "fullscreen",
+			terminal,
+			requestRender: vi.fn(),
+			hasOverlay: () => false,
+			getFocusedComponent: () => null,
+			setFocus: vi.fn(),
+		} as unknown as TUI;
+		const footer = {
+			getGitBranch: () => "main",
+			getExtensionStatuses: () => new Map(),
+			onBranchChange: () => () => {},
+		} as unknown as ReadonlyFooterDataProvider;
+		const ui = {
+			setSidebar: (
+				factory?: (tui: TUI, theme: Theme, footer: ReadonlyFooterDataProvider) => OmegaSidebar,
+				options?: { width: number },
+			) => {
+				mounted?.dispose();
+				mounted = undefined;
+				if (!factory || !options) return;
+				widths.push(options.width);
+				mounted = factory(tui, plainTheme, footer);
+			},
+			onTerminalInput: vi.fn(),
+			notify: vi.fn(),
+		};
+		const ctx = {
+			mode: "tui",
+			ui,
+			cwd: "/tmp/omega",
+			model: undefined,
+			thinkingLevel: "off",
+			isIdle: () => true,
+			getContextUsage: () => undefined,
+			sessionManager: { getSessionId: () => "s", getBranch: () => [] },
+		} as unknown as ExtensionContext;
+		const omega = {
+			on: (name: string, handler: (...args: unknown[]) => unknown) => handlers.set(name, handler),
+			registerCommand: vi.fn(),
+			events: { on: () => () => {}, emit: vi.fn() },
+		} as unknown as OmegaAPI;
+		const restoreColumns = setTerminalColumns(120);
+		try {
+			setupSidebar(omega);
+			handlers.get("session_start")?.({}, ctx);
+			expect(widths).toEqual([36]);
+			// A resize is observed from render; the re-mount is debounced.
+			terminal.columns = 200;
+			mounted?.render(36);
+			expect(widths).toEqual([36]);
+			vi.advanceTimersByTime(200);
+			expect(widths).toEqual([36, 60]);
+			// An unchanged derived width must not re-mount on every render.
+			mounted?.render(60);
+			mounted?.render(60);
+			vi.advanceTimersByTime(200);
+			expect(widths).toEqual([36, 60]);
+		} finally {
+			restoreColumns();
+			mounted?.dispose();
+			vi.useRealTimers();
+		}
 	});
 
 	it("renders the three panels, changes tabs by click and keyboard action, and releases its listener", () => {

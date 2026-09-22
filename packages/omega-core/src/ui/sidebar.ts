@@ -51,6 +51,29 @@ const TAB_LABELS: Record<SidebarTab, string> = {
 	system: "SYSTEM",
 };
 const FRAME_INTERVAL_MS = 125;
+/** Terminals emit a burst of size changes while dragging; collapse them into one re-mount. */
+const RESIZE_DEBOUNCE_MS = 150;
+/** Narrowest usable sidebar; below this the art and labels collapse. */
+const MIN_SIDEBAR_WIDTH = 28;
+/** Widest auto-sized sidebar, so a huge terminal still leaves room for chat. */
+const MAX_SIDEBAR_WIDTH = 60;
+/** Share of terminal columns the sidebar aims for before clamping. */
+const SIDEBAR_WIDTH_RATIO = 0.3;
+/** Assumed terminal width when the real size cannot be read. */
+const DEFAULT_TERMINAL_COLUMNS = 120;
+
+/**
+ * Sidebar width for a terminal of `columns` columns: proportional to the
+ * terminal, clamped to [MIN, MAX], and never more than a third of the screen so
+ * the transcript keeps the majority of the width. Unknown or degenerate sizes
+ * fall back to a typical wide terminal instead of producing NaN.
+ */
+export function sidebarWidthForTerminal(columns: number): number {
+	const safeColumns = Number.isFinite(columns) && columns > 0 ? Math.floor(columns) : DEFAULT_TERMINAL_COLUMNS;
+	const proportional = Math.round(safeColumns * SIDEBAR_WIDTH_RATIO);
+	const capped = Math.min(proportional, Math.floor(safeColumns / 3));
+	return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, capped));
+}
 
 function fitLine(value: string, width: number): string {
 	const safeWidth = Math.max(0, width);
@@ -103,6 +126,10 @@ function subagentResults(value: unknown): SingleResult[] | undefined {
 
 export class OmegaSidebar implements Component {
 	focused = false;
+	/** Invoked when the terminal size changes; the host re-mounts to resize the sidebar. */
+	onTerminalResize: ((columns: number, rows: number) => void) | undefined;
+	private lastTerminalColumns = 0;
+	private lastTerminalRows = 0;
 	private previousFocus: Component | null = null;
 	private readonly minTerminalWidth: number;
 	private readonly side: "left" | "right";
@@ -333,6 +360,20 @@ export class OmegaSidebar implements Component {
 		);
 	}
 
+	/**
+	 * The host allocates a fixed width at mount time, so a terminal resize only
+	 * takes effect after a re-mount. Report size changes from render, where the
+	 * current terminal dimensions are authoritative.
+	 */
+	private detectTerminalResize(): void {
+		const columns = this.tui.terminal.columns;
+		const rows = this.tui.terminal.rows;
+		if (columns === this.lastTerminalColumns && rows === this.lastTerminalRows) return;
+		this.lastTerminalColumns = columns;
+		this.lastTerminalRows = rows;
+		this.onTerminalResize?.(columns, rows);
+	}
+
 	private hasLiveActivity(): boolean {
 		return (
 			this.activeTools.size > 0 ||
@@ -463,6 +504,7 @@ export class OmegaSidebar implements Component {
 	}
 
 	render(width: number): string[] {
+		this.detectTerminalResize();
 		const safeWidth = Math.max(1, Math.floor(width));
 		const height = Math.max(1, this.tui.terminal.rows);
 		const innerWidth = Math.max(0, safeWidth - 1);
@@ -601,7 +643,13 @@ export class OmegaSidebar implements Component {
 export function setupSidebar(omega: OmegaAPI): void {
 	let sidebar: OmegaSidebar | undefined;
 	let enabled = true;
-	let width = 44;
+	/** Fixed width from `/sidebar width <n>`; undefined auto-sizes to the terminal. */
+	let manualWidth: number | undefined;
+	/** Width baked into the current fullscreen layout; drives resize re-mounts. */
+	let mountedWidth = 0;
+	/** Terminal width last reported by the mounted sidebar; authoritative over process.stdout. */
+	let observedColumns: number | undefined;
+	let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 	let side: "left" | "right" = "right";
 	let currentContext: ExtensionContext | undefined;
 	let latestMcpStates: readonly McpStatusEntry[] = [];
@@ -632,7 +680,31 @@ export function setupSidebar(omega: OmegaAPI): void {
 	};
 
 	const refresh = (ctx: ExtensionContext) => sidebar?.updateContext(ctx);
-	const mount = (ctx: ExtensionContext) => {
+
+	/** Columns of the controlling terminal; the host exposes no size API to extensions. */
+	const terminalColumns = () => process.stdout.columns ?? DEFAULT_TERMINAL_COLUMNS;
+	const widthFor = (columns: number) => manualWidth ?? sidebarWidthForTerminal(columns);
+
+	/**
+	 * The host bakes the sidebar width into the fullscreen layout when mounting, so
+	 * an adaptive width only takes effect after a re-mount. Terminals emit a burst
+	 * of size changes while dragging, hence the debounce; a re-mount is skipped
+	 * when the derived width is unchanged, which also stops mount loops.
+	 */
+	const scheduleResize = (columns: number) => {
+		observedColumns = columns;
+		if (manualWidth !== undefined) return;
+		if (sidebarWidthForTerminal(columns) === mountedWidth) return;
+		if (resizeTimer) clearTimeout(resizeTimer);
+		resizeTimer = setTimeout(() => {
+			resizeTimer = undefined;
+			if (currentContext && manualWidth === undefined && observedColumns !== undefined) {
+				mount(currentContext, observedColumns);
+			}
+		}, RESIZE_DEBOUNCE_MS);
+	};
+
+	const mount = (ctx: ExtensionContext, columns: number = observedColumns ?? terminalColumns()) => {
 		currentContext = ctx;
 		// The sidebar API is an Omega fork addition; stock npm pi builds lack it,
 		// so skip mounting instead of throwing during startup.
@@ -646,6 +718,9 @@ export function setupSidebar(omega: OmegaAPI): void {
 			sidebar = undefined;
 			return;
 		}
+		const width = widthFor(columns);
+		const minTerminalWidth = Math.max(90, width + 40);
+		mountedWidth = width;
 		const focused = sidebar?.focused ?? false;
 		const selectedTab = sidebar?.getSelectedTab() ?? "status";
 		const selectedPanel = sidebar?.getActivePanel() ?? "tabs";
@@ -656,7 +731,8 @@ export function setupSidebar(omega: OmegaAPI): void {
 		setSidebar.call(
 			ctx.ui,
 			(tui, theme, footerData) => {
-				sidebar = new OmegaSidebar(tui, theme, footerData, ctx, Date.now, Math.max(100, width + 40), side);
+				sidebar = new OmegaSidebar(tui, theme, footerData, ctx, Date.now, minTerminalWidth, side);
+				sidebar.onTerminalResize = (columns) => scheduleResize(columns);
 				sidebar.selectTab(selectedTab);
 				sidebar.selectPanel(selectedPanel);
 				sidebar.setArtMode(selectedArtMode);
@@ -666,31 +742,36 @@ export function setupSidebar(omega: OmegaAPI): void {
 				if (focused) sidebar.focus();
 				return sidebar;
 			},
-			{ width, side, minTerminalWidth: Math.max(100, width + 40), minTerminalHeight: 18 },
+			{ width, side, minTerminalWidth, minTerminalHeight: 18 },
 		);
 	};
 
 	registerOmegaCommand(omega, "sidebar", {
-		description: "Control sidebar: /sidebar on|off|left|right|width <columns>",
+		description: "Control sidebar: /sidebar on|off|left|right|width <columns|auto>",
 		handler: async (args, ctx) => {
 			const [action, value, ...extra] = args.trim().toLowerCase().split(/\s+/);
 			if (action === "on" && !value) enabled = true;
 			else if (action === "off" && !value) enabled = false;
 			else if ((action === "left" || action === "right") && !value) side = action;
 			else if ((action === "width" || action === "wight") && value && !extra.length) {
-				const requested = Number(value);
-				if (!Number.isInteger(requested) || requested < 24 || requested > 80) {
-					ctx.ui.notify("Sidebar width must be an integer from 24 to 80.", "error");
-					return;
+				if (value === "auto") {
+					manualWidth = undefined;
+				} else {
+					const requested = Number(value);
+					if (!Number.isInteger(requested) || requested < 24 || requested > 80) {
+						ctx.ui.notify('Sidebar width must be an integer from 24 to 80, or "auto".', "error");
+						return;
+					}
+					manualWidth = requested;
 				}
-				width = requested;
 			} else if (action && action !== "width" && action !== "wight") {
-				ctx.ui.notify("Usage: /sidebar on|off|left|right|width <24-80>", "error");
+				ctx.ui.notify("Usage: /sidebar on|off|left|right|width <24-80|auto>", "error");
 				return;
 			}
 			if (currentContext && ctx.mode === "tui") mount(currentContext);
+			const widthLabel = manualWidth === undefined ? "auto" : String(manualWidth);
 			ctx.ui.notify(
-				`Sidebar ${enabled ? "on" : "off"} on the ${side}, width ${width}. F6 focuses; F7 switches panels; Tab cycles; Ctrl+O toggles animation.`,
+				`Sidebar ${enabled ? "on" : "off"} on the ${side}, width ${widthLabel}. F6 focuses; F7 switches panels; Tab cycles; Ctrl+O toggles animation.`,
 				"info",
 			);
 		},
@@ -772,6 +853,9 @@ export function setupSidebar(omega: OmegaAPI): void {
 		currentContext = undefined;
 		latestMcpStates = [];
 		backgroundRequestId = undefined;
+		observedColumns = undefined;
+		if (resizeTimer) clearTimeout(resizeTimer);
+		resizeTimer = undefined;
 		unsubscribeBackgroundResponse?.();
 		unsubscribeBackgroundTerminal?.();
 		unsubscribeBackgroundResponse = undefined;
