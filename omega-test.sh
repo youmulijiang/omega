@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+export OMEGA_CODING_AGENT_DIR="$SCRIPT_DIR/.omega/agent"
+
 # Check for --no-env flag
 NO_ENV=false
 ARGS=()
@@ -51,7 +53,15 @@ if [[ "$NO_ENV" == "true" ]]; then
   unset AZURE_OPENAI_API_KEY
   unset AZURE_OPENAI_BASE_URL
   unset AZURE_OPENAI_RESOURCE_NAME
+  unset OMEGA_TEST_API_KEY
   echo "Running without API keys..."
 fi
 
-"$SCRIPT_DIR/node_modules/.bin/tsx" --tsconfig "$SCRIPT_DIR/tsconfig.json" "$SCRIPT_DIR/packages/omega-core/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}
+TSX_BIN="$SCRIPT_DIR/node_modules/.bin/tsx"
+if [[ ! -x "$TSX_BIN" ]]; then
+  echo "tsx not found at $TSX_BIN. Run npm install from the repo root first." >&2
+  exit 1
+fi
+
+# --tsconfig is passed explicitly so the script works from any working directory
+exec "$TSX_BIN" --tsconfig "$SCRIPT_DIR/tsconfig.json" "$SCRIPT_DIR/packages/omega-core/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}
