@@ -225,6 +225,44 @@ describe("scope permissions", () => {
 		expect(select).toHaveBeenCalledOnce();
 	});
 
+	it("keeps a configured deny blocking while still suppressing asks at full access", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-policy-deny-full-access-"));
+		temporaryDirectories.push(cwd);
+		const agentDirectory = join(cwd, ".omega", "agent");
+		mkdirSync(agentDirectory, { recursive: true });
+		writeFileSync(
+			join(agentDirectory, "permissions.json"),
+			JSON.stringify({ level: "full access", bash: { "curl *": "deny", "nmap *": "ask" } }),
+			"utf8",
+		);
+		const handlers = new Map<string, EventHandler>();
+		const pi = {
+			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
+			registerCommand: vi.fn(),
+		} as unknown as ExtensionAPI;
+		const select = vi.fn();
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: { confirm: vi.fn(), notify: vi.fn(), select, setStatus: vi.fn() },
+		};
+		registerPermissions(pi);
+		await handlers.get("session_start")?.({ type: "session_start" } as never, ctx as never);
+
+		const denied = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "curl https://example.test" } } as never,
+			ctx as never,
+		);
+		const asked = await handlers.get("tool_call")?.(
+			{ type: "tool_call", toolName: "bash", input: { command: "nmap 10.0.0.8" } } as never,
+			ctx as never,
+		);
+
+		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("权限策略拒绝") }));
+		expect(asked).toBeUndefined();
+		expect(select).not.toHaveBeenCalled();
+	});
+
 	it("never allows built-in catastrophic operations even in full access", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "omega-hard-deny-"));
 		temporaryDirectories.push(cwd);
