@@ -38,9 +38,9 @@
     Skip running the host-compatible executable after extracting the archive.
 
 .EXAMPLE
-    .\scripts\build-all.ps1
-    .\scripts\build-all.ps1 -Platform linux-arm64
-    .\scripts\build-all.ps1 -SkipInstall -SkipBuild -Platform windows-x64
+    .\build\build-all.ps1
+    .\build\build-all.ps1 -Platform linux-arm64
+    .\build\build-all.ps1 -SkipInstall -SkipBuild -Platform windows-x64
 #>
 
 param(

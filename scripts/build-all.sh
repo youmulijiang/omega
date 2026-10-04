@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Build omega binaries for all common platforms locally.
-# Bash counterpart of scripts/build-all.ps1; mirrors the packaging layout of
+# Bash counterpart of build/build-all.ps1; mirrors the packaging layout of
 # .github/workflows/build-binaries.yml.
 #
 # Usage:
