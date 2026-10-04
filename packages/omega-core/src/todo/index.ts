@@ -79,19 +79,32 @@ export function todoContinuationPrompt(subject: string): string {
 	return `Continue the current todo before starting another task. Current todo: ${subject}`;
 }
 
+/**
+ * 运行中插入语句（steer/followUp）时的提示词：保留 todo 提醒，并把用户原文附在后面。
+ * 原文必须保留——模型据此自行用 todo 工具调整列表，否则用户的补充会被静默丢弃。
+ */
+export function todoInterjectionPrompt(subject: string, text: string): string {
+	return `${todoContinuationPrompt(subject)}\n\n用户在你运行期间补充：${text}`;
+}
+
+/** 当前应继续的任务：优先 in_progress，否则第一条未完成任务。 */
+function currentTodoTask(state: TodoState): TodoItem | undefined {
+	const unfinished = state.tasks.filter((task) => task.status !== "deleted" && task.status !== "completed");
+	return unfinished.find((task) => task.status === "in_progress") ?? unfinished[0];
+}
+
 export async function resolveTodoTaskSwitch(omega: OmegaAPI, ctx: ExtensionContext): Promise<TodoTaskSwitchDecision> {
 	const state = getState(ctx);
 	const visible = state.tasks.filter((task) => task.status !== "deleted");
 	if (visible.length === 0) return { kind: "start_new" };
-	const unfinished = visible.filter((task) => task.status !== "completed");
-	if (unfinished.length === 0) {
+	const current = currentTodoTask(state);
+	if (!current) {
 		notifyTodoReplacement(omega, ctx);
 		commitState(omega, ctx, createTodoState());
 		return { kind: "start_new" };
 	}
 	if (!ctx.hasUI) return { kind: "unavailable" };
 
-	const current = unfinished.find((task) => task.status === "in_progress") ?? unfinished[0];
 	const choice = await ctx.ui.select(`Current todo: ${current.subject}`, [TODO_CONTINUE_CURRENT, TODO_START_NEW]);
 	if (choice === TODO_START_NEW) {
 		notifyTodoReplacement(omega, ctx);
@@ -184,6 +197,7 @@ export function registerTodo(omega: OmegaAPI): void {
 		promptGuidelines: [
 			"Use todo for work with multiple concrete steps. Mark exactly one task in_progress before doing it, and mark it completed immediately after verification.",
 			"Do not mark incomplete or failing work completed. Keep concise imperative subjects and use activeForm for the current activity.",
+			'When a message contains "用户在你运行期间补充：" the user interjected while you were working. Reconcile the todo list with that text (create, update, or delete tasks) before continuing the current one.',
 		],
 		parameters: TodoParams,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -225,12 +239,24 @@ export function registerTodo(omega: OmegaAPI): void {
 
 	omega.on("input", async (event, ctx) => {
 		if (event.source === "extension") return { action: "continue" };
-		const decision = await resolveTodoTaskSwitch(omega, ctx);
-		if (decision.kind === "continue_current") {
+		if (event.streamingBehavior) {
+			// 运行中插入（steer/followUp）：智能体已经在做当前 todo，不能再弹「继续/新建」
+			// 选择窗，更不能把用户原文替换掉。保留 todo 提醒并把原文附在后面，由模型据此
+			// 用 todo 工具调整列表。
+			const current = currentTodoTask(getState(ctx));
+			if (!current) return { action: "continue" };
 			return {
 				action: "transform",
-				text: todoContinuationPrompt(decision.subject),
-				images: [],
+				text: todoInterjectionPrompt(current.subject, event.text),
+			};
+		}
+		const decision = await resolveTodoTaskSwitch(omega, ctx);
+		if (decision.kind === "continue_current") {
+			// 同样保留原文与附件：用户在弹窗里选的是「继续当前 todo」，
+			// 不代表可以丢掉他这次输入的内容。
+			return {
+				action: "transform",
+				text: todoInterjectionPrompt(decision.subject, event.text),
 			};
 		}
 		return decision.kind === "cancel" ? { action: "handled" } : { action: "continue" };
