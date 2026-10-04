@@ -212,7 +212,9 @@ function normalizeVerificationRejection(value: unknown): VerificationRejection |
 		return undefined;
 	}
 	const nextActions = Array.isArray(value.nextActions)
-		? value.nextActions.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 32)
+		? value.nextActions
+				.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+				.slice(0, 32)
 		: undefined;
 	return {
 		reason: value.reason,

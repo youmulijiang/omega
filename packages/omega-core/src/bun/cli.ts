@@ -8,8 +8,7 @@ import { runOmegaCli } from "../cli-runner.ts";
 // restoreSandboxEnv is an Omega fork addition; stock npm pi builds lack it, and
 // ESM named imports of missing exports fail at link time, so access it lazily.
 type SandboxEnvRestorer = () => void;
-const restoreSandboxEnv = (piCodingAgent as Partial<Record<"restoreSandboxEnv", SandboxEnvRestorer>>)
-	.restoreSandboxEnv;
+const restoreSandboxEnv = (piCodingAgent as Partial<Record<"restoreSandboxEnv", SandboxEnvRestorer>>).restoreSandboxEnv;
 restoreSandboxEnv?.();
 setBedrockProviderModule(bedrockProviderModule);
 registerBunOAuthFlows();
