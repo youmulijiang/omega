@@ -5,7 +5,9 @@
 ## 组成
 
 - 本目录（`plugins/browser-plugin/`）：Chrome MV3 扩展，作为 WebSocket 客户端连接 Omega。
-- `packages/omega-core/src/browser-extension/`：Omega 侧桥接模块，启动 `ws://127.0.0.1:9334`（可用环境变量 `OMEGA_BROWSER_BRIDGE_PORT` 覆盖）并注册 `browser_ext_*` 工具。
+- `packages/omega-core/src/browser-extension/`：Omega 侧桥接模块，在 `ws://127.0.0.1:9334-9343` 中占用一个空闲端口（可用环境变量 `OMEGA_BROWSER_BRIDGE_PORT` 固定端口）并注册 `browser_ext` 工具。
+
+多个 Omega 会话可并行运行：每个会话占用一个端口，并以 `agentId`/`agentName` 标识自己。扩展探测整个端口段，在侧边栏顶部的下拉框中选择聊天路由到哪个智能体。
 
 ## 安装
 
@@ -16,20 +18,24 @@
 
 ## 智能体工具
 
-| 工具 | 说明 |
-| --- | --- |
-| `browser_ext_status` | 查看桥接服务端与扩展连接状态 |
-| `browser_ext_list_tabs` | 列出所有标签页 |
-| `browser_ext_select_tab` | 将指定标签页置前 |
-| `browser_ext_navigate` | 导航（可新建标签页） |
-| `browser_ext_evaluate` | 在页面主世界执行 JS（结果需可 JSON 序列化） |
-| `browser_ext_get_content` | 读取标题 / URL / 可见文本 / HTML |
-| `browser_ext_screenshot` | 截取可见区域并保存为 PNG（临时目录） |
-| `browser_ext_click` | 点击 CSS 选择器匹配的元素 |
-| `browser_ext_type` | 设置输入框值并派发 input/change 事件 |
-| `browser_ext_get_auth` | 读取当前页鉴权上下文：Cookie（含 HttpOnly）、document.cookie、localStorage、sessionStorage |
+10 个动作合并为一个编号调度工具 `browser_ext`：模型回答 `number`（下列编号）加该动作自己的参数，`tabId` 全部可选，默认当前活动标签页。
 
-CLI 命令：`/browser-bridge status|start|stop`。
+| # | 动作 | 参数 | 说明 |
+| --- | --- | --- | --- |
+| 1 | `status` | — | 查看桥接服务端与扩展连接状态 |
+| 2 | `list_tabs` | — | 列出所有标签页 |
+| 3 | `select_tab` | `tabId` | 将指定标签页置前 |
+| 4 | `navigate` | `url`, `tabId?` | 导航（无 `tabId` 时新建标签页） |
+| 5 | `evaluate` | `expression`, `tabId?` | 在页面主世界执行 JS（结果需可 JSON 序列化） |
+| 6 | `get_content` | `tabId?`, `maxLength?` | 读取标题 / URL / 可见文本 / HTML |
+| 7 | `screenshot` | `tabId?` | 截取可见区域并保存为 PNG（临时目录） |
+| 8 | `click` | `selector`, `tabId?` | 点击 CSS 选择器匹配的元素 |
+| 9 | `type` | `selector`, `text`, `tabId?` | 设置输入框值并派发 input/change 事件 |
+| 10 | `get_auth` | `tabId?`, `maxCookies?` | 读取当前页鉴权上下文：Cookie（含 HttpOnly）、document.cookie、localStorage、sessionStorage |
+
+CLI 命令：`/browser-bridge status|start|stop|name <名称>`。
+
+`name` 给当前会话起一个浏览器插件会话名，写入 `~/.omega/browser-bridge-sessions.json`；侧边栏头部随即显示该名称，之后可用侧边栏的 `/switch <名称>` 切回。不带参数时显示当前名称。
 
 ## 侧边栏对话
 
@@ -38,6 +44,8 @@ Chrome 侧边栏（边栏图标 → Omega，或从 chrome://extensions 的「打
 - 输入消息经扩展 WebSocket 直达 Omega 会话（以 `[Chrome 侧边栏]` 前缀作为用户消息触发智能体回合）。
 - 智能体的文本回复经 `message_end` 事件回流到侧边栏实时显示。
 - 需要先在终端启动 Omega 并加载扩展桥接，侧边栏顶部显示「● 已连接」即可对话。
+
+连接状态以应用层心跳为准：扩展每 5 秒向已连接端口发 `ping`，15 秒内没有收到任何消息即判定连接失效并断开重连。因此 Omega 进程退出、socket 半开等情况都会在 15 秒内显示为「● 未连接」，不会停留在假的已连接状态。
 
 ## 鉴权上下文说明
 
@@ -54,7 +62,11 @@ Chrome 侧边栏（边栏图标 → Omega，或从 chrome://extensions 的「打
 
 扩展 ↔ Omega 之间为 JSON 文本帧：
 
-- 扩展 → Omega 握手：`{"type":"hello","extension":"omega-browser-bridge","version":"1.0.0"}`
+- 扩展 → Omega 握手：`{"type":"hello","extension":"omega-browser-bridge","version":"1.1.0"}`
+- Omega → 扩展 身份与状态：`{"type":"agent_info","agentId":"agent-…","agentName":"…"}`、`{"type":"session_info","model":{...},"sessionId":"…"}`
+- 扩展 → Omega 心跳：`{"type":"ping"}`；Omega 回 `{"type":"pong"}`
+- 侧边栏 → Omega：`{"type":"chat","text":"…"}`、`{"type":"broadcast","text":"…"}`、`{"type":"switch_session","op":"new|switch","name":"…"}`、`{"type":"stop"}`
+- Omega → 侧边栏：`{"type":"chat_reply","text":"…"}`（`done`/`queued`/`broadcast` 为可选标志）
 - Omega → 扩展 命令：`{"type":"command","id":1,"tool":"navigate","params":{"url":"https://example.com"}}`
 - 扩展 → Omega 响应：`{"type":"response","id":1,"ok":true,"result":{...}}` 或 `{"type":"response","id":1,"ok":false,"error":"..."}`
 
