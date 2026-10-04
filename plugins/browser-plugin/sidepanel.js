@@ -142,8 +142,13 @@ function updateSendButton() {
 	sendEl.title = streaming ? "停止当前回合" : "发送";
 }
 
-function renderStatusLine(connected) {
-	const agent = agents.find((entry) => entry.agentId === selectedAgentId);
+/**
+ * 连接状态只由 background 返回的智能体列表推导（其中已包含心跳存活判定），
+ * 不接受调用方传参，避免出现「未连接却显示已连接」。
+ */
+function renderStatusLine() {
+	const agent = agents.find((entry) => entry.selected) ?? agents.find((entry) => entry.agentId === selectedAgentId);
+	const connected = Boolean(agent);
 	const model = agent?.sessionInfo?.model?.name;
 	const sessionId = agent?.sessionInfo?.sessionId ?? activeConversation;
 	statusEl.textContent = connected ? `● 已连接 · ${sessionId ?? ""}` : "● 未连接";
@@ -193,7 +198,7 @@ async function switchConversation(name, op) {
 	messagesEl.innerHTML = "";
 	updateSendButton();
 	await loadHistory(name);
-	renderStatusLine(true);
+	renderStatusLine();
 	await chrome.runtime.sendMessage({ type: "switch_session", op, name });
 }
 
@@ -393,7 +398,7 @@ async function refreshStatus() {
 		const selected = agents.find((agent) => agent.selected);
 		const connected = Boolean(selected);
 		renderAgentSelector();
-		renderStatusLine(connected);
+		renderStatusLine();
 		sendEl.disabled = !connected;
 	} catch {
 		statusEl.textContent = "● 未连接";
@@ -465,9 +470,6 @@ newSessionEl.addEventListener("click", () => {
 
 chrome.runtime.onMessage.addListener((message) => {
 	if (message?.type === "session_info") {
-		if ((!selectedAgentId || message.agentId === selectedAgentId) && message.model?.name) {
-			renderStatusLine(Boolean(selectedAgentId));
-		}
 		refreshStatus();
 		return;
 	}

@@ -89,6 +89,8 @@ export async function stopBridge(): Promise<void> {
 	const server = bridge.server;
 	bridge.server = undefined;
 	bridge.ownsServer = false;
+	// 主动断开扩展端连接：让扩展立即显示未连接，而不是维持半开 socket。
+	bridge.connection?.close();
 	detachConnection();
 	for (const pending of bridge.pending.values()) {
 		clearTimeout(pending.timer);
@@ -134,6 +136,11 @@ function handleText(connection: BridgeConnection, message: string) {
 		if (status) {
 			connection.sendText(JSON.stringify({ type: "session_info", ...status }));
 		}
+		return;
+	}
+	if (record.type === "ping") {
+		// 扩展端心跳：回 pong 证明桥接进程仍然存活（用于识别半开连接）。
+		connection.sendText(JSON.stringify({ type: "pong" }));
 		return;
 	}
 	if (record.type === "chat" && typeof record.text === "string" && record.text.trim()) {

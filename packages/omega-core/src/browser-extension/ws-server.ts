@@ -9,6 +9,8 @@ import { createServer, type Server, type Socket } from "node:net";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+/** 发出关闭帧后等待对端回应的宽限期，超时强制销毁 socket。 */
+const CLOSE_GRACE_MS = 200;
 
 type TextHandler = (message: string) => void;
 type CloseHandler = () => void;
@@ -52,8 +54,15 @@ export class BridgeConnection {
 
 	close() {
 		if (this.closed) return;
-		this.socket.write(encodeFrame(Buffer.alloc(0), 0x8));
+		try {
+			this.socket.write(encodeFrame(Buffer.alloc(0), 0x8));
+		} catch {
+			// 对端已断开：忽略关闭帧写入失败
+		}
 		this.socket.end();
+		// 兜底：对端不回应关闭帧时强制销毁。socket 半开会让 server.close() 永不回调，
+		// 导致 stopBridge() 挂起、扩展端一直显示「已连接」。
+		setTimeout(() => this.socket.destroy(), CLOSE_GRACE_MS);
 		this.handleClose();
 	}
 
@@ -194,8 +203,15 @@ export interface BridgeServer {
 
 export function startBridgeServer(options: WsServerOptions): Promise<BridgeServer> {
 	return new Promise((resolve, reject) => {
+		/** 已建立的连接：server.close() 只在全部连接结束后回调，必须主动断开它们。 */
+		const live = new Set<BridgeConnection>();
+		let closing = false;
 		const server: Server = createServer((socket) => {
-			options.onConnection(new BridgeConnection(socket));
+			const connection = new BridgeConnection(socket);
+			live.add(connection);
+			socket.on("close", () => live.delete(connection));
+			options.onConnection(connection);
+			if (closing) connection.close();
 		});
 		server.on("error", reject);
 		server.listen(options.port, "127.0.0.1", () => {
@@ -204,6 +220,8 @@ export function startBridgeServer(options: WsServerOptions): Promise<BridgeServe
 				port: options.port,
 				close: () =>
 					new Promise((resolveClose) => {
+						closing = true;
+						for (const connection of live) connection.close();
 						server.close(() => resolveClose());
 					}),
 			});
