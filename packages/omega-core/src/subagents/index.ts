@@ -83,6 +83,19 @@ const SUBAGENT_TEMP_PARENT_SESSION_ENV = "OMEGA_SUBAGENT_TEMP_PARENT_SESSION";
 const SESSION_ID_NAMESPACE = "omega-subagent/v1";
 const SESSION_ID_PREFIX = "subagent.";
 const SESSION_HANDLE_MAX_LENGTH = 120;
+/** Overlay geometry for the runtime conversation viewer. `maxHeight` must match
+ *  `OVERLAY_HEIGHT_RATIO` in runtime-view.ts: the viewer sizes its frame to exactly this height,
+ *  because the overlay clips an over-tall frame from the top. */
+const SUBAGENT_VIEW_OVERLAY = {
+	overlay: true,
+	overlayOptions: {
+		anchor: "center",
+		width: "94%",
+		minWidth: 72,
+		maxHeight: "82%",
+		margin: 1,
+	},
+} as const;
 const inheritedPiArgv = selectInheritedPiArgv(process.argv, process.env);
 
 // ---------------------------------------------------------------------------
@@ -693,6 +706,8 @@ function updateSubagentFooter(ctx: Pick<ExtensionContext, "ui">, results: readon
 
 export interface RegisterSubagentsOptions {
 	settingsPath?: string;
+	/** Test seam: replaces the child-process runner so the run lifecycle can be driven without spawning. */
+	runAgent?: typeof runAgent;
 }
 
 export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOptions = {}): void {
@@ -714,6 +729,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	const settingsPath = options.settingsPath ?? getSubagentSettingsPath();
 	const enabled = readSubagentSettings(settingsPath).enabled;
 	const runtimeEnabled = enabled && canDelegate;
+	const runAgentImpl = options.runAgent ?? runAgent;
 	const activeSessionIds = new Set<string>();
 	const activeTasks = new Map<
 		string,
@@ -727,6 +743,8 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 		{ settlementKey: string; taskId: string; agent: string; output: string }
 	>();
 	let latestRuntimeResults: readonly SingleResult[] = [];
+	/** Task ids published by the run currently on screen; earlier runs must not linger in the UI. */
+	const visibleRuntimeTaskIds = new Set<string>();
 	let nextTaskId = 1;
 	let runtimeViewDepth = 0;
 	let selectedRuntimeTaskId: string | undefined;
@@ -748,11 +766,30 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 		),
 	);
 
+	const visibleRuntimeResults = (): readonly SingleResult[] =>
+		[...visibleRuntimeTaskIds]
+			.map((taskId) => runtimeResults.get(taskId))
+			.filter((result): result is SingleResult => result !== undefined);
+
+	/** Forget agents from finished runs; still-running tasks (an overlapping run) stay visible. */
+	const pruneFinishedRuntimeTasks = (): void => {
+		for (const taskId of [...visibleRuntimeTaskIds]) {
+			if (runtimeResults.get(taskId)?.exitCode === -1) continue;
+			visibleRuntimeTaskIds.delete(taskId);
+		}
+		latestRuntimeResults = visibleRuntimeResults();
+	};
+
 	const publishRuntimeResults = (results: readonly SingleResult[]): readonly SingleResult[] => {
 		for (const result of results) {
-			if (result.taskId) runtimeResults.set(result.taskId, result);
+			if (!result.taskId) continue;
+			runtimeResults.set(result.taskId, result);
+			visibleRuntimeTaskIds.add(result.taskId);
 		}
-		latestRuntimeResults = [...runtimeResults.values()];
+		// `runtimeResults` keeps finished runs around for `subagent_status`, but the list the widgets
+		// and the viewer render is run-scoped: otherwise a completed agent from an earlier run stays
+		// in the panel and reappears next to the agents of the following run.
+		latestRuntimeResults = visibleRuntimeResults();
 		return latestRuntimeResults;
 	};
 
@@ -855,16 +892,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 								if (!sent.ok) ctx.ui.notify(sent.message, "warning");
 							},
 						),
-					{
-						overlay: true,
-						overlayOptions: {
-							anchor: "center",
-							width: "94%",
-							minWidth: 72,
-							maxHeight: "82%",
-							margin: 1,
-						},
-					},
+					SUBAGENT_VIEW_OVERLAY,
 				);
 			} finally {
 				runtimeViewDepth = Math.max(0, runtimeViewDepth - 1);
@@ -1262,6 +1290,10 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 						parentSessionSnapshotJsonl = snapshot;
 					}
 
+					// A new run owns the runtime panel: forget agents from earlier runs so they are not
+					// re-rendered next to this run's calls. Tasks that are still running (a background
+					// run can overlap this one) stay visible.
+					pruneFinishedRuntimeTasks();
 					ctx.ui.setWidget(
 						"omega.subagents.agents",
 						(tui, theme) => {
@@ -1320,16 +1352,7 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 											if (!sent.ok) ctx.ui.notify(sent.message, "warning");
 										},
 									),
-								{
-									overlay: true,
-									overlayOptions: {
-										anchor: "center",
-										width: "94%",
-										minWidth: 72,
-										maxHeight: "82%",
-										margin: 1,
-									},
-								},
+								SUBAGENT_VIEW_OVERLAY,
 							)
 							.catch((error) => ctx.ui.notify(`打开 subagent 运行视图失败：${String(error)}`, "error"))
 							.finally(() => {
@@ -1491,7 +1514,7 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 				const taskController = taskControllers[workerIndex];
 				let result: SingleResult;
 				try {
-					result = await runAgent({
+					result = await runAgentImpl({
 						taskId: taskController.taskId,
 						cwd: defaultCwd,
 						agents,
@@ -1546,7 +1569,13 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 		} finally {
 			if (heartbeat) clearInterval(heartbeat);
 			signal?.removeEventListener("abort", abortAllTasks);
-			for (const task of taskControllers) activeTasks.delete(task.taskId);
+			for (const task of taskControllers) {
+				// Deleting the entry also drops the only handle that can release keep-alive, so an
+				// idle runtime that was selected in the viewer would otherwise keep its process alive
+				// forever. Release it first; a still-running task ignores this and is aborted elsewhere.
+				activeTasks.get(task.taskId)?.control?.setKeepAlive(false);
+				activeTasks.delete(task.taskId);
+			}
 		}
 
 		const hasErrors = results.some((r) => isResultError(r));

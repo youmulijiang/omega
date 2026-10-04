@@ -1,3 +1,4 @@
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
 	AssistantMessageComponent,
 	CustomEditor,
@@ -9,20 +10,25 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
-	Container,
 	type EditorTheme,
+	type Focusable,
 	Markdown,
-	Text,
+	ScrollView,
 	type TUI,
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
 	truncateToWidth,
 	visibleWidth,
-	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { getDisplayItems, isResultError, isResultSuccess, type SingleResult } from "./types.ts";
+import { isResultError, isResultSuccess, type SingleResult } from "./types.ts";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+/** Frame rows outside the body: top/bottom borders, header, the two rules, and the footer. */
+const FRAME_ROWS = 6;
+/** Rows the overlay's own margin keeps clear around the frame. */
+const OVERLAY_MARGIN_ROWS = 2;
+/** Must match the overlay's `maxHeight` percentage in the view's mount sites. */
+const OVERLAY_HEIGHT_RATIO = 0.82;
 
 function oneLine(value: string): string {
 	return value.replace(/\s+/gu, " ").trim();
@@ -45,6 +51,11 @@ function formatTokens(tokens: number): string {
 function padBetween(left: string, right: string, width: number): string {
 	const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
 	return truncateToWidth(`${left}${" ".repeat(gap)}${right}`, width);
+}
+
+function padLine(value: string, width: number): string {
+	const clipped = truncateToWidth(value, Math.max(1, width), "");
+	return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 }
 
 function resultKey(result: SingleResult, index: number): string {
@@ -242,36 +253,175 @@ export class SubagentFleetEditor extends CustomEditor {
 	}
 }
 
-function padLine(value: string, width: number): string {
-	const clipped = truncateToWidth(value, Math.max(1, width), "");
-	return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+type LivePart = NonNullable<SingleResult["liveContent"]>[number];
+
+/** Cheap change signature so the streaming tail only re-renders on real deltas. */
+function liveSignature(parts: readonly LivePart[]): string {
+	return parts
+		.map((part) => {
+			if (part.type === "text") return `t${part.text.length}`;
+			if (part.type === "thinking") return `k${part.thinking.length}`;
+			return `c${part.name}`;
+		})
+		.join("|");
 }
 
-function assistantLines(result: SingleResult): string[] {
-	const lines: string[] = [];
-	const items = getDisplayItems(result.messages);
-	for (const item of items) {
-		if (item.type === "text") lines.push(...item.text.replace(/\r\n?/gu, "\n").split("\n"));
-		else lines.push(`→ ${item.name} ${JSON.stringify(item.args)}`);
+function lastAssistantMessage(messages: readonly Message[]): AssistantMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role === "assistant") return message;
 	}
-	if (items.length === 0) lines.push(result.exitCode === -1 ? "(waiting for output…)" : "(no captured output)");
-	if (result.errorMessage) lines.push("", `[Error] ${result.errorMessage}`);
-	return lines;
+	return undefined;
 }
 
-function thinkingLines(result: SingleResult): string[] {
-	const lines: string[] = [];
-	for (const message of result.messages) {
-		if (message.role !== "assistant") continue;
-		for (const part of message.content) {
-			if (part.type !== "thinking") continue;
-			const thinking = Reflect.get(part, "thinking");
-			if (typeof thinking === "string" && thinking.trim()) {
-				lines.push(...thinking.replace(/\r\n?/gu, "\n").split("\n"));
+/** Wrap the in-flight RPC deltas as an AssistantMessage so the transcript can stream them in place. */
+function liveAssistantMessage(result: SingleResult, parts: readonly LivePart[]): AssistantMessage {
+	const template = lastAssistantMessage(result.messages);
+	return {
+		role: "assistant",
+		content: parts.map((part) => {
+			if (part.type === "text") return { type: "text" as const, text: part.text };
+			if (part.type === "thinking") {
+				return { type: "thinking" as const, thinking: part.thinking, thinkingSignature: part.thinkingSignature };
+			}
+			return { type: "toolCall" as const, id: part.id, name: part.name, arguments: part.arguments };
+		}) as AssistantMessage["content"],
+		api: template?.api ?? "openai-responses",
+		provider: template?.provider ?? "unknown",
+		model: template?.model ?? "unknown",
+		usage: template?.usage ?? {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: template?.stopReason ?? "stop",
+		timestamp: template?.timestamp ?? Date.now(),
+	};
+}
+
+/** Render one captured child message with the same components the main transcript uses. */
+function messageComponents(message: Message, hideThinking: boolean): Component[] {
+	if (message.role === "assistant") {
+		return [new AssistantMessageComponent(message, hideThinking, getMarkdownTheme(), "Thinking…", 0)];
+	}
+	if (message.role === "user") {
+		return [new UserMessageComponent(messageText(message.content), getMarkdownTheme(), 0)];
+	}
+	const text = messageText(message.content);
+	if (!text) return [];
+	return [new Markdown(text, 0, 0, getMarkdownTheme())];
+}
+
+/**
+ * Transcript of one subagent run.
+ *
+ * Captured messages are turned into components once and appended as they complete; only the
+ * in-flight message is re-rendered as deltas arrive. Rebuilding the whole conversation per frame
+ * (what this replaced) both re-parsed every markdown block and produced one "Thinking…" placeholder
+ * per completed message.
+ */
+class SubagentTranscript implements Component {
+	private components: Component[] = [];
+	private live?: AssistantMessageComponent;
+	private liveKey = "";
+	private consumed = 0;
+	private consumedHead: Message | undefined;
+	private consumedPrompts = 0;
+	private hideThinking = false;
+
+	setThinkingHidden(hidden: boolean): void {
+		if (hidden === this.hideThinking) return;
+		this.hideThinking = hidden;
+		for (const component of this.components) {
+			if (component instanceof AssistantMessageComponent) component.setHideThinkingBlock(hidden);
+		}
+		this.live?.setHideThinkingBlock(hidden);
+	}
+
+	sync(result: SingleResult | undefined): void {
+		if (!result) {
+			this.reset();
+			return;
+		}
+		this.syncCaptured(result);
+		this.syncLive(result);
+	}
+
+	/** Drop every built component, e.g. when the viewer switches to a different subagent. */
+	reset(): void {
+		this.components = [];
+		this.live = undefined;
+		this.liveKey = "";
+		this.consumed = 0;
+		this.consumedHead = undefined;
+		this.consumedPrompts = 0;
+	}
+
+	private syncCaptured(result: SingleResult): void {
+		const messages = result.messages;
+		const prompts = result.runtimePrompts ?? [];
+		// The runner mutates one array in place (push on completion, shift when it truncates the head),
+		// so count plus head identity is enough to tell appends from a rewrite.
+		const appending =
+			this.consumed <= messages.length &&
+			(this.consumed === 0 || messages[0] === this.consumedHead) &&
+			this.consumedPrompts === prompts.length;
+		if (!appending) {
+			this.components = [];
+			this.rebuild(result);
+		} else if (messages.length > this.consumed) {
+			// Prompts are unchanged on this path, so only the new messages need components.
+			for (let index = this.consumed; index < messages.length; index++) {
+				this.components.push(...messageComponents(messages[index]!, this.hideThinking));
 			}
 		}
+		this.consumed = messages.length;
+		this.consumedHead = messages[0];
+		this.consumedPrompts = prompts.length;
 	}
-	return lines;
+
+	/** Rebuild every message, interleaving follow-up prompts at their captured positions. */
+	private rebuild(result: SingleResult): void {
+		const messages = result.messages;
+		const prompts = result.runtimePrompts ?? [];
+		for (let index = 0; index <= messages.length; index++) {
+			for (const prompt of prompts) {
+				if (prompt.afterMessageCount !== index) continue;
+				this.components.push(new UserMessageComponent(prompt.text, getMarkdownTheme(), 0));
+			}
+			const message = messages[index];
+			if (message) this.components.push(...messageComponents(message, this.hideThinking));
+		}
+	}
+
+	private syncLive(result: SingleResult): void {
+		const parts = result.liveContent;
+		if (!parts || parts.length === 0) {
+			this.live = undefined;
+			this.liveKey = "";
+			return;
+		}
+		const key = liveSignature(parts);
+		if (this.live && key === this.liveKey) return;
+		this.liveKey = key;
+		this.live ??= new AssistantMessageComponent(undefined, this.hideThinking, getMarkdownTheme(), "Thinking…", 0);
+		this.live.updateContent(liveAssistantMessage(result, parts), true);
+	}
+
+	render(width: number): string[] {
+		const lines: string[] = [];
+		for (const component of this.components) lines.push(...component.render(width));
+		if (this.live) lines.push(...this.live.render(width));
+		return lines;
+	}
+
+	invalidate(): void {
+		for (const component of this.components) component.invalidate();
+		this.live?.invalidate();
+	}
 }
 
 function messageText(content: unknown): string {
@@ -289,46 +439,7 @@ function messageText(content: unknown): string {
 		.join("");
 }
 
-function mainConversationLines(result: SingleResult, width: number, thinkingExpanded: boolean): string[] {
-	const conversation = new Container();
-	const markdownTheme = getMarkdownTheme();
-	conversation.addChild(new UserMessageComponent(result.prompt, markdownTheme, 0));
-	for (let index = 0; index <= result.messages.length; index++) {
-		for (const prompt of result.runtimePrompts?.filter((item) => item.afterMessageCount === index) ?? []) {
-			conversation.addChild(new UserMessageComponent(prompt.text, markdownTheme, 0));
-		}
-		const message = result.messages[index];
-		if (!message) continue;
-		if (message.role === "user") {
-			conversation.addChild(new UserMessageComponent(messageText(message.content), markdownTheme, 0));
-		} else if (message.role === "assistant") {
-			conversation.addChild(
-				new AssistantMessageComponent(message, !thinkingExpanded, markdownTheme, "Thinking…", 0),
-			);
-		} else {
-			const text = messageText(message.content);
-			if (text) conversation.addChild(new Markdown(text, 0, 0, markdownTheme));
-		}
-	}
-	if (result.liveContent && result.liveContent.length > 0) {
-		for (const part of result.liveContent) {
-			if (part.type === "text" && part.text) {
-				conversation.addChild(new Markdown(part.text, 0, 0, markdownTheme));
-			} else if (part.type === "thinking" && part.thinking) {
-				conversation.addChild(new Text(thinkingExpanded ? part.thinking : "Thinking…", 0, 0));
-			} else if (part.type === "toolCall") {
-				conversation.addChild(new Text(`→ ${part.name}`, 0, 0));
-			}
-		}
-	}
-	return conversation.render(width);
-}
-
-export class SubagentConversationView implements Component {
-	private selected = 0;
-	private scrollOffset = 0;
-	private thinkingExpanded = false;
-	private frame = 0;
+export class SubagentConversationView implements Component, Focusable {
 	private readonly getResults: () => readonly SingleResult[];
 	private readonly tui: TUI;
 	private readonly theme: Theme;
@@ -337,6 +448,16 @@ export class SubagentConversationView implements Component {
 	private readonly onSelectionChange?: (index: number) => void;
 	private readonly onSubmit?: (taskId: string, prompt: string) => void | Promise<void>;
 	private readonly editor: CustomEditor;
+	private readonly transcript: SubagentTranscript;
+	private readonly scrollView: ScrollView;
+	/** Last viewport the overlay allotted; the body is clamped to it so follow-end can work. */
+	private bodyRows = 20;
+	private contentLineCount = 0;
+	private selected = 0;
+	private thinkingHidden = false;
+	private frame = 0;
+	private isFocused = false;
+	private finished = false;
 	private readonly timer: NodeJS.Timeout;
 
 	constructor(
@@ -357,6 +478,10 @@ export class SubagentConversationView implements Component {
 		this.selected = initialSelection;
 		this.onSelectionChange = onSelectionChange;
 		this.onSubmit = onSubmit;
+		this.transcript = new SubagentTranscript();
+		// follow "end" is what makes the view track the conversation the way the main chat does.
+		// Inside an overlay no layout engine paints a scrollbar, so the footer carries the position.
+		this.scrollView = new ScrollView(this.transcript, { follow: "end" });
 		this.editor = new CustomEditor(
 			tui,
 			{ borderColor: (text) => theme.fg("border", text), selectList: getSelectListTheme() },
@@ -372,61 +497,50 @@ export class SubagentConversationView implements Component {
 			void Promise.resolve(this.onSubmit(result.taskId, prompt)).catch(() => undefined);
 		};
 		this.onSelectionChange?.(this.selected);
+		this.sync();
 		this.timer = setInterval(() => {
 			this.frame = (this.frame + 1) % SPINNER_FRAMES.length;
+			this.sync();
 			this.tui.requestRender();
 		}, 120);
 		this.timer.unref();
 	}
 
+	get focused(): boolean {
+		return this.isFocused;
+	}
+
+	set focused(value: boolean) {
+		this.isFocused = value;
+		this.editor.focused = value;
+	}
+
 	render(width: number): string[] {
 		const safeWidth = Math.max(40, width);
-		const results = this.getResults();
-		if (this.selected >= results.length) this.selected = Math.max(0, results.length - 1);
-		const result = results[this.selected];
-		if (!result) return [this.theme.fg("muted", "No subagent runtime is available.")];
+		this.sync();
 		const innerWidth = safeWidth - 4;
-		const state =
-			result.exitCode === -1
-				? result.runtimeState === "idle"
-					? "○"
-					: SPINNER_FRAMES[this.frame]
-				: isResultError(result)
-					? "✗"
-					: "✓";
-		const tokens = result.usage.input + result.usage.output + result.usage.cacheWrite;
-		const header = `${state} ${this.theme.bold(result.agent)}  ${oneLine(result.prompt)} · ${formatTokens(tokens)} token`;
-		const thoughts = thinkingLines(result);
-		const thinkingKey = this.keybindings.getKeys("app.thinking.toggle")[0] ?? "ctrl+t";
-		const conversation = ["[User]", result.prompt, ""];
-		if (thoughts.length > 0) {
-			conversation.push(
-				`[Thinking] ${this.thinkingExpanded ? `(${thinkingKey} collapse)` : `(collapsed · ${thinkingKey} expand)`}`,
-			);
-			if (this.thinkingExpanded) conversation.push(...thoughts);
-			conversation.push("");
-		}
-		conversation.push("[Assistant]", ...assistantLines(result));
-		const mainLines = mainConversationLines(result, innerWidth, this.thinkingExpanded);
-		const allConversation =
-			mainLines.length > 0 ? mainLines : conversation.flatMap((line) => wrapTextWithAnsi(line, innerWidth));
-		const overlayRows = Math.max(1, Math.floor((this.tui.terminal?.rows ?? 30) * 0.82));
 		const editorLines = this.onSubmit ? this.editor.render(innerWidth) : [];
-		const maxBodyLines = Math.max(4, Math.min(22, overlayRows - 10 - editorLines.length));
-		const maximumOffset = Math.max(0, allConversation.length - maxBodyLines);
-		this.scrollOffset = Math.min(this.scrollOffset, maximumOffset);
-		const body = allConversation.slice(this.scrollOffset, this.scrollOffset + maxBodyLines);
-		const currentState =
-			result.exitCode === -1 ? (result.runtimeState ?? "running") : isResultError(result) ? "failed" : "done";
-		const instructions = `${this.keybindings.getKeys("tui.input.tab")[0] ?? "tab"} next agent · ${this.keybindings.getKeys("tui.select.up")[0] ?? "up"}/${this.keybindings.getKeys("tui.select.down")[0] ?? "down"} scroll · ${this.keybindings.getKeys("tui.select.pageUp")[0] ?? "pgup"}/${this.keybindings.getKeys("tui.select.pageDown")[0] ?? "pgdn"} page · ${this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc"} return main & summarize`;
+		// The overlay keeps the first `maxHeight` rows of whatever the component returns, so an
+		// over-tall frame silently loses its bottom border. Size the frame to exactly the rows the
+		// overlay allots (its maxHeight, itself clamped by the margin) and let the scroll view take
+		// the remainder.
+		const rows = this.tui.terminal?.rows ?? 30;
+		const allotted = Math.max(1, Math.min(Math.floor(rows * OVERLAY_HEIGHT_RATIO), rows - OVERLAY_MARGIN_ROWS));
+		const chrome = FRAME_ROWS + (this.onSubmit ? 1 + editorLines.length : 0);
+		this.bodyRows = Math.max(1, allotted - chrome);
+		const contentLines = this.scrollView.render(innerWidth);
+		this.contentLineCount = contentLines.length;
+		// Nothing else lays this scroll view out inside an overlay, so feed it the viewport here;
+		// that is what clamps scrollTop to the tail and makes follow-end scroll with the conversation.
+		this.scrollView.updateLayout(contentLines.length, this.bodyRows, () => this.tui.requestRender());
+		const body = contentLines.slice(this.scrollView.scrollTop, this.scrollView.scrollTop + this.bodyRows);
 		const content = [
-			header,
-			this.theme.fg("dim", `Agent: ● ${(result.callIndex ?? this.selected) + 1} ${result.agent} · ${currentState}`),
+			this.renderHeader(innerWidth),
 			this.theme.fg("border", "─".repeat(innerWidth)),
 			...body,
-			...Array.from({ length: Math.max(0, maxBodyLines - body.length) }, () => ""),
+			...Array.from({ length: Math.max(0, this.bodyRows - body.length) }, () => ""),
 			this.theme.fg("border", "─".repeat(innerWidth)),
-			this.theme.fg("dim", `${allConversation.length} lines · ${instructions}`),
+			this.renderFooter(innerWidth),
 			...(this.onSubmit ? [this.theme.fg("dim", "向当前 subagent 发送后续提示词："), ...editorLines] : []),
 		];
 		const title = " Agent runtime ";
@@ -439,51 +553,130 @@ export class SubagentConversationView implements Component {
 		].map((line) => truncateToWidth(line, safeWidth));
 	}
 
-	handleInput(data: string): void {
+	/** Keep the transcript in step with the runner; cheap enough to poll on every frame. */
+	private sync(): void {
 		const results = this.getResults();
+		if (results.length > 0 && this.selected >= results.length) this.selected = results.length - 1;
+		this.transcript.sync(results[this.selected]);
+	}
+
+	private currentResult(): SingleResult | undefined {
+		const results = this.getResults();
+		if (results.length === 0) return undefined;
+		return results[Math.min(this.selected, results.length - 1)];
+	}
+
+	private select(index: number): void {
+		const results = this.getResults();
+		if (results.length === 0) return;
+		this.selected = ((index % results.length) + results.length) % results.length;
+		this.transcript.reset();
+		this.sync();
+		this.scrollView.scrollToEnd();
+		this.onSelectionChange?.(this.selected);
+		this.tui.requestRender();
+	}
+
+	private renderHeader(width: number): string {
+		const result = this.currentResult();
+		if (!result) return truncateToWidth(this.theme.fg("muted", "No subagent runtime is available."), width);
+		const icon =
+			result.exitCode === -1
+				? result.runtimeState === "idle"
+					? this.theme.fg("accent", "○")
+					: this.theme.fg("accent", SPINNER_FRAMES[this.frame] ?? "⠋")
+				: isResultError(result)
+					? this.theme.fg("error", "✗")
+					: this.theme.fg("success", "✓");
+		const state =
+			result.exitCode === -1 ? (result.runtimeState ?? "running") : isResultError(result) ? "failed" : "done";
+		const tokens = result.usage.input + result.usage.output + result.usage.cacheWrite;
+		const right = `${formatTokens(tokens)} tokens · ${state}`;
+		const left = `${icon} ${this.theme.bold(result.agent)}  ${oneLine(result.prompt) || "working"}`;
+		return padBetween(
+			truncateToWidth(left, Math.max(1, width - visibleWidth(right) - 2)),
+			this.theme.fg("dim", right),
+			width,
+		);
+	}
+
+	private renderFooter(width: number): string {
+		const results = this.getResults();
+		const result = results[this.selected];
+		const thinkingKey = this.keybindings.getKeys("app.thinking.toggle")[0] ?? "ctrl+t";
+		// No scrollbar is painted inside an overlay, so surface the scroll position here.
+		const position =
+			this.contentLineCount > this.bodyRows
+				? `${this.scrollView.scrollTop + 1}-${Math.min(this.contentLineCount, this.scrollView.scrollTop + this.bodyRows)}/${this.contentLineCount}`
+				: undefined;
+		const hints = [
+			`${(result?.callIndex ?? this.selected) + 1}/${results.length}`,
+			`${result?.usage.turns ?? 0} turns`,
+			...(position === undefined ? [] : [position]),
+			`${this.keybindings.getKeys("tui.input.tab")[0] ?? "tab"} next agent`,
+			`${thinkingKey} ${this.thinkingHidden ? "show" : "hide"} thinking`,
+			`${this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc"} return`,
+		];
+		return truncateToWidth(this.theme.fg("dim", hints.join(" · ")), width);
+	}
+
+	handleInput(data: string): void {
+		if (this.finished) return;
 		if (this.keybindings.matches(data, "tui.select.cancel")) {
+			this.finished = true;
 			this.done();
 			return;
 		}
-		if (results.length === 0) return;
-		if (this.onSubmit && this.editor.getText().length > 0) {
+		if (this.editor.getText().length > 0) {
 			this.editor.handleInput(data);
 			this.tui.requestRender();
 			return;
 		}
+		if (this.getResults().length === 0) return;
 		if (this.keybindings.matches(data, "tui.input.tab")) {
-			this.selected = (this.selected + 1) % results.length;
-			this.scrollOffset = 0;
-			this.onSelectionChange?.(this.selected);
-		} else if (this.keybindings.matches(data, "app.thinking.toggle")) {
-			this.thinkingExpanded = !this.thinkingExpanded;
-			this.scrollOffset = 0;
-		} else if (this.keybindings.matches(data, "tui.select.up")) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-		} else if (this.keybindings.matches(data, "tui.select.down")) {
-			this.scrollOffset += 1;
-		} else if (this.keybindings.matches(data, "tui.select.pageUp")) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - 10);
-		} else if (this.keybindings.matches(data, "tui.select.pageDown")) {
-			this.scrollOffset += 10;
-		} else if (this.onSubmit) {
-			this.editor.handleInput(data);
+			this.select(this.selected + 1);
+			return;
 		}
+		if (this.keybindings.matches(data, "app.thinking.toggle")) {
+			this.thinkingHidden = !this.thinkingHidden;
+			this.transcript.setThinkingHidden(this.thinkingHidden);
+			this.tui.requestRender();
+			return;
+		}
+		if (this.keybindings.matches(data, "tui.select.pageUp")) {
+			this.scrollView.scrollBy(-Math.max(1, this.bodyRows));
+			this.tui.requestRender();
+			return;
+		}
+		if (this.keybindings.matches(data, "tui.select.pageDown")) {
+			this.scrollView.scrollBy(Math.max(1, this.bodyRows));
+			this.tui.requestRender();
+			return;
+		}
+		if (this.keybindings.matches(data, "tui.select.up")) {
+			this.scrollView.scrollBy(-1);
+			this.tui.requestRender();
+			return;
+		}
+		if (this.keybindings.matches(data, "tui.select.down")) {
+			this.scrollView.scrollBy(1);
+			this.tui.requestRender();
+			return;
+		}
+		if (this.onSubmit) this.editor.handleInput(data);
 		this.tui.requestRender();
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		if (event.type !== "wheel" || !event.wheelDelta) return undefined;
-		const next = Math.max(0, this.scrollOffset + (event.wheelDelta < 0 ? -1 : 1));
-		if (next === this.scrollOffset) return { handled: true, render: false };
-		this.scrollOffset = next;
-		this.tui.requestRender();
-		return { handled: true };
+		return { handled: true, render: this.scrollView.scrollBy(event.wheelDelta < 0 ? -1 : 1) !== 0 };
 	}
 
 	dispose(): void {
 		clearInterval(this.timer);
 	}
 
-	invalidate(): void {}
+	invalidate(): void {
+		this.scrollView.invalidate();
+	}
 }
