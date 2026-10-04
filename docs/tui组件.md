@@ -1,5 +1,5 @@
 一、基础 TUI 组件
-位于 [`packages/tui/src/components`](D:/project/securityDev/omega/omega/packages/tui/src/components)，主要包括：
+位于 [`packages/tui/src/components`](../packages/tui/src/components)，主要包括：
 组件	作用
 Text	多行文本显示、自动换行、内边距
 TruncatedText	单行文本，超出终端宽度时截断
@@ -19,7 +19,7 @@ ScrollView	可滚动区域，支持鼠标、触控板和键盘滚动
 Container	最基础的子组件容器，由 tui.ts 提供
 
 
-统一导出入口是 [`packages/tui/src/index.ts`](D:/project/securityDev/omega/omega/packages/tui/src/index.ts)。
+统一导出入口是 [`packages/tui/src/index.ts`](../packages/tui/src/index.ts)。
 二、TUI 核心渲染器
 Pi 提供两种终端渲染模式：
 - TuiMainScreen
@@ -41,7 +41,7 @@ Pi 提供两种终端渲染模式：
 - 光标及 IME 定位
 - 生命周期管理
 三、Pi Agent 专用组件
-这些位于 [`packages/coding-agent/src/modes/interactive/components`](D:/project/securityDev/omega/omega/packages/coding-agent/src/modes/interactive/components)，是在基础 TUI 之上组合出来的业务组件。
+这些位于 [`packages/coding-agent/src/modes/interactive/components`](../packages/coding-agent/src/modes/interactive/components)，是在基础 TUI 之上组合出来的业务组件。
 对话消息
 - UserMessageComponent：用户消息
 - AssistantMessageComponent：模型回答
@@ -90,4 +90,4 @@ Pi 提供两种终端渲染模式：
 - LoginDialogComponent：登录对话框
 - FirstTimeSetupComponent：首次启动配置
 - EarendilAnnouncement：公告信息
-业务组件统一导出入口是 [`components/index.ts`](D:/project/securityDev/omega/omega/packages/coding-agent/src/modes/interactive/components/index.ts)。
+业务组件统一导出入口是 [`components/index.ts`](../packages/coding-agent/src/modes/interactive/components/index.ts)。

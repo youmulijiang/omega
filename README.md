@@ -147,7 +147,6 @@ The scripts run the CLI through `tsx`, so no build step is needed to exercise so
 | `/study:list`, `/study:status` | List the knowledge index; watch the learning process |
 | `/cost [models\|export]` | Session token and spend chart, per-model breakdown, HTML export |
 | `/btw <question>` | Ask a quick side question without polluting the main conversation |
-| `/btw:log` | View the side-thread history |
 | `/todos` | Show or hide the todo execution panel |
 | `/sidebar on\|off\|left\|right\|width <n\|auto>` | Control the sidebar |
 | `/mcp`, `/mcp:list`, `/mcp:status` | Configure MCP servers and inspect their tools |
@@ -212,7 +211,7 @@ npm run check                  # lint, format, type check, and repo invariants
 ./omega-test.sh                # run the CLI from source
 ```
 
-`npm run check` is the gate to satisfy before finishing a change; see [AGENTS.md](AGENTS.md) for the project's development rules and [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+`npm run check` is the gate to satisfy before finishing a change; see [AGENTS.md](AGENTS.md) for the project's development rules.
 
 ## Upstream
 

@@ -4,7 +4,7 @@
 
 - This is a TypeScript monorepo. `packages/omega-core` extends `packages/coding-agent` through the Pi extension API.
 - Omega modules register through `packages/omega-core/src/entry.ts`; the CLI injects that extension from `cli-runner.ts`.
-- Run source with `./pi-test.sh` on Unix or `./pi-test.ps1` on Windows. Both must start the Omega CLI.
+- Run source with `./omega-test.sh` on Unix or `./omega-test.ps1` on Windows. Both must start the Omega CLI.
 - Security testing targets are authorized lab environments.
 
 ## Communication
@@ -38,7 +38,7 @@
 - Coding-agent suite tests use `test/suite/harness.ts` and the faux provider. Never use real providers, keys, or paid tokens.
 - Put issue regressions in `packages/coding-agent/test/suite/regressions/<issue>-<slug>.test.ts`.
 - Put ad-hoc scripts in a temporary file and remove it afterward.
-- For interactive smoke tests, start `pi-test.sh` in tmux, send input, capture output, then kill the session. On Windows, use `pi-test.ps1` and RPC `get_commands` when command registration is under test.
+- For interactive smoke tests, start `omega-test.sh` in tmux, send input, capture output, then kill the session. On Windows, use `omega-test.ps1` and RPC `get_commands` when command registration is under test.
 - Never commit unless requested.
 
 ## Dependencies
@@ -61,7 +61,6 @@
 
 ## Issues and PRs
 
-- Follow `CONTRIBUTING.md` contributor gates.
 - Review PRs without switching the worktree: use `gh pr view`, `gh pr diff`, `gh api`, `git show`, or fetched refs.
 - Apply all relevant existing `pkg:*` labels.
 - Post multiline comments with a temporary file and `--body-file`. Keep them concise and include the disclaimer required by the originating prompt.

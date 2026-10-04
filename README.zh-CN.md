@@ -147,7 +147,6 @@ npm install --ignore-scripts
 | `/study:list`、`/study:status` | 列出知识库索引;实时查看学习过程 |
 | `/cost [models\|export]` | 会话 Token 与费用图表、按模型明细、HTML 导出 |
 | `/btw <问题>` | 快速提问,不污染主对话 |
-| `/btw:log` | 查看旁路对话历史 |
 | `/todos` | 显示或隐藏待办执行面板 |
 | `/sidebar on\|off\|left\|right\|width <列数\|auto>` | 控制侧边栏 |
 | `/mcp`、`/mcp:list`、`/mcp:status` | 配置 MCP 服务器并检视其工具 |
@@ -212,7 +211,7 @@ npm run check                  # lint、格式化、类型检查与仓库约束�
 ./omega-test.sh                # 从源码运行 CLI
 ```
 
-完成改动前需通过 `npm run check`;项目开发规则见 [AGENTS.md](AGENTS.md),贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+完成改动前需通过 `npm run check`;项目开发规则见 [AGENTS.md](AGENTS.md)。
 
 ## 上游同步
 
