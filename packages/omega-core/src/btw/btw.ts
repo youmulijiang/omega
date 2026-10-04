@@ -30,7 +30,6 @@ import {
 import { sanitizeSingleLine } from "./text.ts";
 import {
 	BtwAnsweringView,
-	BtwLogView,
 	type BtwThinkingControl,
 	BtwTranscriptPager,
 	type TranscriptPagerAction,
@@ -47,6 +46,7 @@ export {
 export {
 	BTW_THINKING_LEVELS,
 	type BtwThinkingLevel,
+	buildSideThreadSystemPrompt,
 	buildUserPrompt,
 	completeSideQuestion,
 } from "./side-thread.ts";
@@ -194,7 +194,6 @@ export interface BtwExtensionDependencies {
 	resolveModel?: typeof resolveBtwModelWithLoader;
 	runThread?: typeof runBtwThread;
 	runFullscreen?: RunBtwFullscreen;
-	runLog?: RunBtwFullscreen;
 }
 
 export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependencies = {}): void {
@@ -203,7 +202,6 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 	const resolveModel = dependencies.resolveModel ?? resolveBtwModelWithLoader;
 	const runThread = dependencies.runThread ?? runBtwThread;
 	const runFullscreen = dependencies.runFullscreen ?? runBtwFullscreen;
-	const runLog = dependencies.runLog ?? runBtwFullscreen;
 	// Pi creates a fresh extension instance after session replacement or reload.
 	const resumableThreads = new Map<string, BtwThreadState>();
 	let nextThreadNumber = 1;
@@ -218,7 +216,8 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 				questionCount: state.thread.turns.length,
 			}));
 	registerOmegaCommand(omega, "btw", {
-		description: "Ask a quick side question without adding it to the main conversation",
+		description:
+			"Ask a quick side question without adding it to the main conversation: /btw [question] (omit the question to pick a model/thinking level or resume a side thread)",
 		handler: async (args, ctx) => {
 			const question = args.trim();
 			if (ctx.mode !== "tui") {
@@ -282,33 +281,6 @@ export function registerBtw(omega: OmegaAPI, dependencies: BtwExtensionDependenc
 					resumableThreads.set(state.id, state);
 				}
 			}
-		},
-	});
-	registerOmegaCommand(omega, "btw:log", {
-		description: "View BTW side-thread conversation history",
-		handler: async (_args, ctx) => {
-			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/btw:log requires interactive TUI mode", "error");
-				return;
-			}
-			const entries = [...resumableThreads.values()]
-				.filter((state) => state.thread.turns.length > 0)
-				.sort((first, second) => second.updatedAt - first.updatedAt || second.createdAt - first.createdAt)
-				.map((state) => ({
-					id: state.id,
-					title: state.title ?? "Untitled side thread",
-					turns: state.thread.turns,
-					updatedAt: state.updatedAt,
-				}));
-			if (entries.length === 0) {
-				notifySafely(ctx, "No BTW conversation history is available.", "info");
-				return;
-			}
-			await runLog(ctx, (logCtx) =>
-				logCtx.ui.custom(
-					(tui, theme, _keybindings, done) => new BtwLogView(tui, theme, entries, () => done(undefined)),
-				),
-			);
 		},
 	});
 }
@@ -506,6 +478,8 @@ async function askThreadQuestion(
 	ctx: ExtensionCommandContext,
 	steering: BtwThreadSteeringControl,
 ) {
+	// 每轮重新读取主会话：侧线问答据此作答，且能看到侧线打开后主会话的新进展。
+	const mainContext = readMainContext(ctx);
 	return ctx.ui.custom<Awaited<ReturnType<typeof completeSideThreadTurn>>>((tui, theme, keybindings, done) => {
 		let settled = false;
 		const view = new BtwAnsweringView(
@@ -533,6 +507,7 @@ async function askThreadQuestion(
 			model: selected.model,
 			thinkingLevel,
 			auth: selected.auth,
+			mainContext,
 			signal: view.signal,
 			completeSimple: createModelRegistryCompleteSimple(ctx.modelRegistry),
 		}).then((result) => {
@@ -543,6 +518,17 @@ async function askThreadQuestion(
 		});
 		return view;
 	});
+}
+
+/**
+ * 主会话的只读投影。会话可能在侧线打开期间被替换，此时退回无上下文而不是让侧线崩掉。
+ */
+function readMainContext(ctx: ExtensionCommandContext): string | undefined {
+	try {
+		return buildConversationContext(ctx.sessionManager.getBranch()) || undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 async function showThreadComposer(
@@ -581,7 +567,7 @@ type SessionEntry = {
 	message?: SessionMessage;
 };
 
-/** Shared conversation projection used by /study; BTW itself never calls this. */
+/** Shared conversation projection used by /study and as the /btw side-thread context. */
 export function buildConversationContext(entries: readonly SessionEntry[]): string {
 	const sections: string[] = [];
 	for (const entry of entries) {

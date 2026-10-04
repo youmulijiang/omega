@@ -8,7 +8,6 @@ import { registerBtw } from "../src/btw/btw.ts";
 
 vi.mock("../src/btw/transcript-pager.ts", () => ({
 	BtwAnsweringView: class {},
-	BtwLogView: class {},
 	BtwTranscriptPager: class {},
 }));
 
@@ -52,26 +51,5 @@ describe("registerBtw", () => {
 				thinkingLevel: "off",
 			}),
 		);
-	});
-
-	it("registers /btw:log without publishing anything to the main session", async () => {
-		let logHandler: CommandHandler | undefined;
-		const pi = {
-			getThinkingLevel: () => "off",
-			registerCommand: (name: string, command: { handler: CommandHandler }) => {
-				if (name === "btw:log") logHandler = command.handler;
-			},
-		} as unknown as ExtensionAPI;
-		const ctx = {
-			mode: "tui",
-			sessionManager: { getBranch: () => [] },
-			ui: { notify: vi.fn() },
-		} as unknown as ExtensionCommandContext;
-
-		registerBtw(pi, {
-		});
-
-		await logHandler?.("", ctx);
-		expect(ctx.ui.notify).toHaveBeenCalledWith("No BTW conversation history is available.", "info");
 	});
 });
