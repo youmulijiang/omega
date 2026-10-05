@@ -14,6 +14,7 @@ const importOAuthModule = (specifier: string): Promise<unknown> => {
 type OAuthFlowLoaders = {
 	anthropic: () => OAuthAuth | Promise<OAuthAuth>;
 	openaiCodex: () => OAuthAuth | Promise<OAuthAuth>;
+	openaiChatGPT: () => OAuthAuth | Promise<OAuthAuth>;
 	githubCopilot: () => OAuthAuth | Promise<OAuthAuth>;
 	openrouter: () => OAuthAuth | Promise<OAuthAuth>;
 	kimiCoding: () => OAuthAuth | Promise<OAuthAuth>;
@@ -47,6 +48,12 @@ export const loadOpenAICodexOAuth = async (): Promise<OAuthAuth> => {
 	return ((await importOAuthModule("./openai-codex.ts")) as { openaiCodexOAuth: OAuthAuth }).openaiCodexOAuth;
 };
 
+export const loadOpenAIChatGPTOAuth = async (): Promise<OAuthAuth> => {
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.openaiChatGPT();
+	return ((await importOAuthModule("./openai-chatgpt.ts")) as { openaiChatGPTOAuth: OAuthAuth }).openaiChatGPTOAuth;
+};
+
 export const loadGitHubCopilotOAuth = async (): Promise<OAuthAuth> => {
 	const loaders = getBundledLoaders();
 	if (loaders) return loaders.githubCopilot();
@@ -66,7 +73,8 @@ export const loadKimiCodingOAuth = async (): Promise<OAuthAuth> => {
 };
 
 export const loadMetaOAuth = async (): Promise<OAuthAuth> => {
-	if (bundledLoaders) return bundledLoaders.meta();
+	const loaders = getBundledLoaders();
+	if (loaders) return loaders.meta();
 	return ((await importOAuthModule("./meta.ts")) as { metaOAuth: OAuthAuth }).metaOAuth;
 };
 

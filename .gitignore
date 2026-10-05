@@ -38,6 +38,8 @@ pi-*.html
 out.html
 packages/coding-agent/binaries/
 out/
+packages/env/bin/
+packages/env/daemon/target/
 todo.md
 plans/
 !docs/superpowers/plans/

@@ -131,18 +131,19 @@ for platform in "${PLATFORMS[@]}"; do
     fi
 
     # Bun compiled executables only embed worker scripts when they are passed as
-    # explicit build entrypoints. The runtime can still use new URL(...), but the
-    # worker must be present in the compiled executable.
+    # explicit build entrypoints. Bun places them at their path relative to the
+    # common directory of all entrypoints, so the main entry must stay in dist/
+    # for the worker specifiers in the runtime to resolve.
     #
     # Disable cwd bunfig.toml autoload so project preload scripts cannot crash the
     # standalone binary before pi starts (see #7684).
     if [[ "$platform" == windows-* ]]; then
         windows_icon="$OUTPUT_DIR/$platform/omega.ico"
         node ../../scripts/create-windows-icon.mjs "$ICON_SOURCE" "$windows_icon"
-        bun build --compile --no-compile-autoload-bunfig --target="$bun_target" --windows-icon="$windows_icon" ../omega-core/dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/omega.exe"
+        bun build --compile --no-compile-autoload-bunfig --target="$bun_target" --windows-icon="$windows_icon" ../omega-core/dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/omega.exe"
         rm -f "$windows_icon"
     else
-        bun build --compile --no-compile-autoload-bunfig --target="$bun_target" ../omega-core/dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/omega"
+        bun build --compile --no-compile-autoload-bunfig --target="$bun_target" ../omega-core/dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/omega"
     fi
 done
 
