@@ -289,7 +289,7 @@ function messageText(content: unknown): string {
 		.join("");
 }
 
-function mainConversationLines(result: SingleResult, width: number, thinkingExpanded: boolean): string[] {
+function mainConversationLines(result: SingleResult, width: number, thinkingExpanded: boolean, theme: Theme): string[] {
 	const conversation = new Container();
 	const markdownTheme = getMarkdownTheme();
 	conversation.addChild(new UserMessageComponent(result.prompt, markdownTheme, 0));
@@ -315,7 +315,9 @@ function mainConversationLines(result: SingleResult, width: number, thinkingExpa
 			if (part.type === "text" && part.text) {
 				conversation.addChild(new Markdown(part.text, 0, 0, markdownTheme));
 			} else if (part.type === "thinking" && part.thinking) {
-				conversation.addChild(new Text(thinkingExpanded ? part.thinking : "Thinking…", 0, 0));
+				conversation.addChild(
+					new Text(thinkingExpanded ? theme.fg("thinkingText", part.thinking) : "Thinking…", 0, 0),
+				);
 			} else if (part.type === "toolCall") {
 				conversation.addChild(new Text(`→ ${part.name}`, 0, 0));
 			}
@@ -327,7 +329,9 @@ function mainConversationLines(result: SingleResult, width: number, thinkingExpa
 export class SubagentConversationView implements Component {
 	private selected = 0;
 	private scrollOffset = 0;
-	private thinkingExpanded = false;
+	private maximumOffset = 0;
+	private followEnd = true;
+	private thinkingExpanded = true;
 	private frame = 0;
 	private readonly getResults: () => readonly SingleResult[];
 	private readonly tui: TUI;
@@ -407,14 +411,15 @@ export class SubagentConversationView implements Component {
 			conversation.push("");
 		}
 		conversation.push("[Assistant]", ...assistantLines(result));
-		const mainLines = mainConversationLines(result, innerWidth, this.thinkingExpanded);
+		const mainLines = mainConversationLines(result, innerWidth, this.thinkingExpanded, this.theme);
 		const allConversation =
 			mainLines.length > 0 ? mainLines : conversation.flatMap((line) => wrapTextWithAnsi(line, innerWidth));
 		const overlayRows = Math.max(1, Math.floor((this.tui.terminal?.rows ?? 30) * 0.82));
 		const editorLines = this.onSubmit ? this.editor.render(innerWidth) : [];
 		const maxBodyLines = Math.max(4, Math.min(22, overlayRows - 10 - editorLines.length));
 		const maximumOffset = Math.max(0, allConversation.length - maxBodyLines);
-		this.scrollOffset = Math.min(this.scrollOffset, maximumOffset);
+		this.maximumOffset = maximumOffset;
+		this.scrollOffset = this.followEnd ? maximumOffset : Math.min(this.scrollOffset, maximumOffset);
 		const body = allConversation.slice(this.scrollOffset, this.scrollOffset + maxBodyLines);
 		const currentState =
 			result.exitCode === -1 ? (result.runtimeState ?? "running") : isResultError(result) ? "failed" : "done";
@@ -453,19 +458,23 @@ export class SubagentConversationView implements Component {
 		}
 		if (this.keybindings.matches(data, "tui.input.tab")) {
 			this.selected = (this.selected + 1) % results.length;
-			this.scrollOffset = 0;
+			this.followEnd = true;
 			this.onSelectionChange?.(this.selected);
 		} else if (this.keybindings.matches(data, "app.thinking.toggle")) {
 			this.thinkingExpanded = !this.thinkingExpanded;
-			this.scrollOffset = 0;
+			this.followEnd = true;
 		} else if (this.keybindings.matches(data, "tui.select.up")) {
+			this.followEnd = false;
 			this.scrollOffset = Math.max(0, this.scrollOffset - 1);
 		} else if (this.keybindings.matches(data, "tui.select.down")) {
 			this.scrollOffset += 1;
+			this.followEnd = this.scrollOffset >= this.maximumOffset;
 		} else if (this.keybindings.matches(data, "tui.select.pageUp")) {
+			this.followEnd = false;
 			this.scrollOffset = Math.max(0, this.scrollOffset - 10);
 		} else if (this.keybindings.matches(data, "tui.select.pageDown")) {
 			this.scrollOffset += 10;
+			this.followEnd = this.scrollOffset >= this.maximumOffset;
 		} else if (this.onSubmit) {
 			this.editor.handleInput(data);
 		}
@@ -477,6 +486,7 @@ export class SubagentConversationView implements Component {
 		const next = Math.max(0, this.scrollOffset + (event.wheelDelta < 0 ? -1 : 1));
 		if (next === this.scrollOffset) return { handled: true, render: false };
 		this.scrollOffset = next;
+		this.followEnd = next >= this.maximumOffset;
 		this.tui.requestRender();
 		return { handled: true };
 	}

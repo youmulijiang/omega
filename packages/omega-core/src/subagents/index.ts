@@ -59,6 +59,7 @@ import {
 	getFinalOutput,
 	type InitialContext,
 	isResultError,
+	isSettledTurnResult,
 	type SingleResult,
 	type SubagentDetails,
 	type SubagentSessionDetails,
@@ -783,7 +784,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 
 	const queueSettledRuntimeResults = (results: readonly SingleResult[]): void => {
 		for (const result of results) {
-			if (!result.taskId || result.runtimeState !== "idle") continue;
+			if (!isSettledTurnResult(result)) continue;
 			const output = getFinalOutput(result.messages).trim();
 			if (!output) continue;
 			const settlementKey = createHash("sha256")
@@ -1369,7 +1370,9 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 					const updateRuntime = (partial: AgentToolResult<SubagentDetails>) => {
 						const currentResults = publishRuntimeResults(partial.details.results);
 						queueSettledRuntimeResults(partial.details.results);
-						agentsWidget?.setResults(currentResults);
+						// Settled tasks stay in runtimeResults for the viewer and status tools,
+						// but the live Agents widget must not keep listing finished runs.
+						agentsWidget?.setResults(currentResults.filter((result) => result.exitCode === -1));
 						fleetWidget?.setResults(currentResults);
 						updateSubagentFooter(ctx, currentResults);
 						onUpdate?.(partial);
@@ -1512,7 +1515,9 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 						inactivityTimeoutMs: call.inactivityTimeoutMs,
 						timeoutMs: call.timeoutMs,
 						signal: taskController.controller.signal,
-						keepAlive: true,
+						// Idle runtimes are closed as soon as a turn settles; the runtime viewer
+						// re-enables keep-alive for whichever task it currently has selected.
+						keepAlive: false,
 						onControlReady: (control) => {
 							const activeTask = activeTasks.get(taskController.taskId);
 							if (activeTask) {

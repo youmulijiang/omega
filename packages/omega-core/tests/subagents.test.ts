@@ -24,7 +24,7 @@ import {
 	resolveRunTimeoutMs,
 } from "../src/subagents/runner.ts";
 import { readSubagentSettings, writeSubagentSettings } from "../src/subagents/settings.ts";
-import { emptyUsage, isResultSuccess, type SingleResult } from "../src/subagents/types.ts";
+import { emptyUsage, isResultSuccess, isSettledTurnResult, type SingleResult } from "../src/subagents/types.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -208,9 +208,9 @@ describe("Omega subagent integration", () => {
 		expect(treeSelection).toBe(1);
 		expect(viewer.render(100).join("\n")).toContain("Verify the finding");
 		expect(viewer.render(100).join("\n")).toContain("verified final result");
-		expect(viewer.render(100).join("\n")).not.toContain("private reasoning trace");
-		viewer.handleInput("ctrl+t");
 		expect(viewer.render(100).join("\n")).toContain("private reasoning trace");
+		viewer.handleInput("ctrl+t");
+		expect(viewer.render(100).join("\n")).not.toContain("private reasoning trace");
 		expect(viewer.render(100).join("\n")).toContain("verified final result");
 		viewer.handleInput("tab");
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
@@ -296,6 +296,56 @@ describe("Omega subagent integration", () => {
 		expect(viewer.render(240).join("\n")).toContain("return main & summarize");
 		viewer.handleInput("\r");
 		expect(submitted).toEqual([{ taskId: "subagent-7", prompt: "继续检查授权边界" }]);
+		viewer.dispose();
+	});
+
+	it("follows the newest output until the user scrolls back", () => {
+		const messages = Array.from({ length: 20 }, (_, index) => ({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: `MARK-${index.toString().padStart(2, "0")}` }],
+			api: "anthropic-messages" as const,
+			provider: "test",
+			model: "test",
+			usage: emptyUsage(),
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		}));
+		const result: SingleResult = {
+			taskId: "subagent-9",
+			callIndex: 0,
+			agent: "worker",
+			agentSource: "builtin",
+			prompt: "Long run",
+			initialContext: "empty",
+			exitCode: -1,
+			messages,
+			stderr: "",
+			usage: emptyUsage(),
+			runtimeState: "running",
+		};
+		const tui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+		} as never;
+		const keybindings = {
+			matches: (data: string, action: string) =>
+				(data === "pgup" && action === "tui.select.pageUp") ||
+				(data === "pgdn" && action === "tui.select.pageDown"),
+			getKeys: (action: string) => [action],
+		} as never;
+		const viewer = new SubagentConversationView(() => [result], tui, theme, keybindings, () => undefined, 0);
+		const has = (marker: string) => viewer.render(80).some((line) => line.includes(marker));
+
+		expect(has("MARK-19")).toBe(true);
+		expect(has("MARK-00")).toBe(false);
+
+		for (let index = 0; index < 5; index++) viewer.handleInput("pgup");
+		expect(has("MARK-19")).toBe(false);
+		expect(has("MARK-00")).toBe(true);
+
+		for (let index = 0; index < 5; index++) viewer.handleInput("pgdn");
+		expect(has("MARK-19")).toBe(true);
 		viewer.dispose();
 	});
 
@@ -521,6 +571,26 @@ describe("Omega subagent integration", () => {
 		processSubagentJsonLine(JSON.stringify({ type: "agent_end", messages: [message] }), result);
 		expect(result.structuredOutput).toEqual({ verdict: "confirmed" });
 		expect(isResultSuccess(result)).toBe(true);
+	});
+
+	it("keeps a settled turn deliverable after its runtime closes", () => {
+		const base: SingleResult = {
+			agent: "worker",
+			agentSource: "builtin",
+			prompt: "Long run",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		const taskId = "subagent-1";
+
+		expect(isSettledTurnResult({ ...base, taskId })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "running", sawAgentSettled: true })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "idle", sawAgentSettled: true })).toBe(true);
+		// Process exit clears runtimeState and sets exitCode; the hand-back must survive both.
+		expect(isSettledTurnResult({ ...base, taskId, exitCode: 0, sawAgentSettled: true })).toBe(true);
 	});
 
 	it("assembles assistant streaming deltas for the runtime TUI", () => {

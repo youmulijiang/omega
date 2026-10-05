@@ -223,18 +223,9 @@ export function registerTodo(omega: OmegaAPI): void {
 		handler: async (ctx) => togglePanel(ctx),
 	});
 
-	omega.on("input", async (event, ctx) => {
-		if (event.source === "extension") return { action: "continue" };
-		const decision = await resolveTodoTaskSwitch(omega, ctx);
-		if (decision.kind === "continue_current") {
-			return {
-				action: "transform",
-				text: todoContinuationPrompt(decision.subject),
-				images: [],
-			};
-		}
-		return decision.kind === "cancel" ? { action: "handled" } : { action: "continue" };
-	});
+	// The task-switch guard intentionally runs only at explicit new-task entry points
+	// (for example `/plan <prompt>`). Intercepting every input would replace the user's
+	// own message while a todo is unfinished, blocking mid-task context injection.
 
 	const restore = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
 		renderState(ctx, restoreState(ctx));

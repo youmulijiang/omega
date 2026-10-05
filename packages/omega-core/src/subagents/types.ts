@@ -150,6 +150,18 @@ export function isResultError(r: SingleResult): boolean {
 	return !isResultSuccess(r);
 }
 
+/**
+ * Whether a finished turn is ready to be handed back to the parent agent.
+ *
+ * "running" is the only state meaning a turn is still in progress. A runtime that finishes
+ * and closes clears `runtimeState` on process exit, so the settlement must remain
+ * deliverable after the runtime is gone rather than depending on the transient "idle" state.
+ */
+export function isSettledTurnResult(r: SingleResult): r is SingleResult & { taskId: string } {
+	if (!r.taskId) return false;
+	return r.runtimeState !== "running" && r.sawAgentSettled === true;
+}
+
 /** Reconcile process exit status with semantic completion observed from Omega's event stream. */
 export function normalizeCompletedResult(result: SingleResult, wasAborted: boolean): SingleResult {
 	const hasSemanticSuccess = hasSemanticCompletion(result);
