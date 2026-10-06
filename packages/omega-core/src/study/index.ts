@@ -94,7 +94,12 @@ async function runStudy(
 	const model = ctx.model;
 	if (!model) throw new Error("No model is available for the study task");
 	const conversation = buildConversationContext(ctx.sessionManager.getBranch());
-	reportProgress("preparing", conversation ? "Read the current session and built the study material" : "Current session is empty; continuing the study with the command material");
+	reportProgress(
+		"preparing",
+		conversation
+			? "Read the current session and built the study material"
+			: "Current session is empty; continuing the study with the command material",
+	);
 	reportProgress("authenticating", `Fetching model credentials for ${model.provider}/${model.id}`);
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok) throw new Error(`Failed to obtain current model credentials: ${auth.error}`);
@@ -161,7 +166,8 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 	});
 
 	registerOmegaCommand(omega, "study", {
-		description: "Study the given material in the background, distill it with the current session, and save it to the user knowledge base",
+		description:
+			"Study the given material in the background, distill it with the current session, and save it to the user knowledge base",
 		handler: async (args, ctx) => {
 			if (activeStudy) {
 				ctx.ui.notify("A study task is already running in the background", "warning");
@@ -190,7 +196,10 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 					);
 					study.controller.signal.throwIfAborted();
 					if (!result.sufficient) {
-						statusTracker.update("awaiting_confirmation", "Insufficient knowledge evidence; waiting for user confirmation to save the draft");
+						statusTracker.update(
+							"awaiting_confirmation",
+							"Insufficient knowledge evidence; waiting for user confirmation to save the draft",
+						);
 						const confirmed = await ctx.ui.confirm(
 							"Insufficient context",
 							`${result.reason || "The current session lacks enough reusable experience."}\n\nProceed with the study and save the current draft anyway?`,
@@ -262,7 +271,10 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 				}
 				ctx.ui.notify(document.content, "info");
 			} catch (error) {
-				ctx.ui.notify(`Failed to read the knowledge base: ${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(
+					`Failed to read the knowledge base: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
 			}
 		},
 	});

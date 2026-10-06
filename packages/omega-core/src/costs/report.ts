@@ -132,7 +132,10 @@ export function collectCostReport(
 		branchMessageCount++;
 		const message = entry.message;
 		if (message.role === "user") {
-			estimates.set("User messages", (estimates.get("User messages") ?? 0) + estimateTextTokens(contentText(message.content)));
+			estimates.set(
+				"User messages",
+				(estimates.get("User messages") ?? 0) + estimateTextTokens(contentText(message.content)),
+			);
 		} else if (message.role === "toolResult") {
 			const label =
 				message.toolName === "mcp"

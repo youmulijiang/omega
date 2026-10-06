@@ -80,7 +80,10 @@ export class StudyStatusTracker {
 			title: result.title,
 			summary: result.summary,
 			filename: result.filename,
-			entries: [...this.snapshot.entries, { phase: "completed", message: `Study complete: ${result.title}`, timestamp }],
+			entries: [
+				...this.snapshot.entries,
+				{ phase: "completed", message: `Study complete: ${result.title}`, timestamp },
+			],
 		};
 		this.publish();
 	}
@@ -219,7 +222,10 @@ export class StudyStatusView implements Component {
 		const cancel = this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc";
 		body.push(
 			"",
-			this.theme.fg("dim", `${cancel} Close window${snapshot.state === "running" ? " · background study keeps running" : ""}`),
+			this.theme.fg(
+				"dim",
+				`${cancel} Close window${snapshot.state === "running" ? " · background study keeps running" : ""}`,
+			),
 		);
 		const title = " AI Study Status ";
 		const top = this.theme.fg("border", `╭${title}${"─".repeat(Math.max(0, safeWidth - visibleWidth(title) - 2))}╮`);

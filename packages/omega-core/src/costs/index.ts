@@ -8,7 +8,8 @@ import { CostDashboard } from "./view.ts";
 
 export function registerCosts(omega: OmegaAPI): void {
 	registerOmegaCommand(omega, "cost", {
-		description: "View token/cost charts for the current session; /cost models for per-model details; /cost export [file.html] to export a report",
+		description:
+			"View token/cost charts for the current session; /cost models for per-model details; /cost export [file.html] to export a report",
 		handler: async (args, ctx) => {
 			const [action, ...rest] = args.trim().split(/\s+/u).filter(Boolean);
 			if (action && action !== "models" && action !== "export") {
@@ -49,7 +50,13 @@ export function registerCosts(omega: OmegaAPI): void {
 						? `Unattributed: ${report.unattributed.totalTokens} tokens · $${report.unattributed.cost.toFixed(4)}`
 						: "";
 					ctx.ui.notify(
-						[header, breakdown, ...rows, unknown, "For source estimates use the /cost chart or /cost export (non-billed attribution)"]
+						[
+							header,
+							breakdown,
+							...rows,
+							unknown,
+							"For source estimates use the /cost chart or /cost export (non-billed attribution)",
+						]
 							.filter(Boolean)
 							.join("\n"),
 						"info",

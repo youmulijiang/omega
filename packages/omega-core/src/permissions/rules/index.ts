@@ -30,7 +30,10 @@ const DISK_DESTRUCTION_PATTERNS = [
 /** Non-configurable deny rules. These always run before user policy and permission level. */
 export function evaluateBuiltInDeny(command: string): BuiltInRisk | undefined {
 	if (SYSTEM_ROOT_DELETE_PATTERNS.some((pattern) => pattern.test(command))) {
-		return { decision: "deny", reason: "Built-in safety rule: deleting the system drive or the entire filesystem is forbidden" };
+		return {
+			decision: "deny",
+			reason: "Built-in safety rule: deleting the system drive or the entire filesystem is forbidden",
+		};
 	}
 	if (DATABASE_DESTRUCTION_PATTERNS.some((pattern) => pattern.test(command))) {
 		return { decision: "deny", reason: "Built-in safety rule: deleting databases or database schemas is forbidden" };
@@ -70,7 +73,10 @@ export async function evaluateBulkDeletion(command: string, cwd: string): Promis
 	let count = 0;
 	for (const operand of deletionOperands(command)) {
 		if (operand.includes("*") || operand.includes("?")) {
-			return { decision: "ask", reason: "Delete command contains wildcards; the file count cannot be determined before execution" };
+			return {
+				decision: "ask",
+				reason: "Delete command contains wildcards; the file count cannot be determined before execution",
+			};
 		}
 		const target = isAbsolute(operand) ? operand : resolve(cwd, operand);
 		count += await countPathFiles(target, MAX_DELETE_FILES_WITHOUT_APPROVAL - count);

@@ -44,7 +44,11 @@ const COMMAND_HELP = [
 ].join("\n");
 
 const COMMAND_CHOICES = [
-	{ action: "run", label: "run — generate and run from a prompt", description: "Generate, validate, and execute a workflow dynamically" },
+	{
+		action: "run",
+		label: "run — generate and run from a prompt",
+		description: "Generate, validate, and execute a workflow dynamically",
+	},
 	{
 		action: "run-template",
 		label: "run-template — run a workflow template",
@@ -52,9 +56,17 @@ const COMMAND_CHOICES = [
 	},
 	{ action: "list", label: "list — list workflow templates", description: "List names, sources, and descriptions" },
 	{ action: "status", label: "status — view run status", description: "View active runs and the latest result" },
-	{ action: "validate", label: "validate — validate a workflow template", description: "Parse and validate without running" },
+	{
+		action: "validate",
+		label: "validate — validate a workflow template",
+		description: "Parse and validate without running",
+	},
 	{ action: "show", label: "show — view a workflow template", description: "Show template source without running" },
-	{ action: "reload", label: "reload — rediscover templates", description: "Refresh the user and project workflow caches" },
+	{
+		action: "reload",
+		label: "reload — rediscover templates",
+		description: "Refresh the user and project workflow caches",
+	},
 ] as const;
 
 interface WorkflowArgumentCompletion {
@@ -310,7 +322,8 @@ async function handleWorkflowsCommand(
 		case "run": {
 			let prompt = rest.trim();
 			if (!prompt && ctx.hasUI) {
-				prompt = (await ctx.ui.input("Workflow prompt", "Describe the task to orchestrate and execute"))?.trim() ?? "";
+				prompt =
+					(await ctx.ui.input("Workflow prompt", "Describe the task to orchestrate and execute"))?.trim() ?? "";
 			}
 			if (!prompt) throw new Error("Usage: /workflows run <prompt>");
 			ctx.ui.notify("Generating and validating the workflow script…", "info");
@@ -320,7 +333,10 @@ async function handleWorkflowsCommand(
 				parentModel: parentModel(ctx),
 				signal: ctx.signal,
 			});
-			ctx.ui.notify(`Workflow script generated and validated: ${generated.meta.name} (${generated.attempts} generation attempt(s))`, "info");
+			ctx.ui.notify(
+				`Workflow script generated and validated: ${generated.meta.name} (${generated.attempts} generation attempt(s))`,
+				"info",
+			);
 			const result = await service.execute(generated.script, {
 				cwd: ctx.cwd,
 				includeProjectWorkflows,
@@ -383,7 +399,10 @@ export function registerWorkflows(omega: OmegaAPI, options: RegisterWorkflowsOpt
 				rememberContext(ctx);
 				await handleWorkflowsCommand(args, ctx, service, publishCompleted);
 			} catch (error) {
-				ctx.ui.notify(`Workflows command failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(
+					`Workflows command failed: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
 			}
 		},
 	});

@@ -57,12 +57,17 @@ export function registerPermissions(omega: OmegaAPI): void {
 		handler: async (args, ctx) => {
 			let requested = args.trim().toLowerCase();
 			if (!requested) {
-				const selected = await ctx.ui.select(`Select permission level (current: ${permissionLevel})`, [...PERMISSION_LEVELS]);
+				const selected = await ctx.ui.select(`Select permission level (current: ${permissionLevel})`, [
+					...PERMISSION_LEVELS,
+				]);
 				if (!selected) return;
 				requested = selected;
 			}
 			if (requested !== "ask for approval" && requested !== "approve for me" && requested !== "full access") {
-				ctx.ui.notify("Invalid permission level. Available values: ask for approval, approve for me, full access", "error");
+				ctx.ui.notify(
+					"Invalid permission level. Available values: ask for approval, approve for me, full access",
+					"error",
+				);
 				return;
 			}
 			permissionLevel = requested;
@@ -100,7 +105,10 @@ export function registerPermissions(omega: OmegaAPI): void {
 				}
 				if (!ctx.hasUI) {
 					deniedTargets.add(target);
-					return { block: true, reason: `Target ${target} is not in Scope Inclusion and cannot be confirmed in non-interactive mode` };
+					return {
+						block: true,
+						reason: `Target ${target} is not in Scope Inclusion and cannot be confirmed in non-interactive mode`,
+					};
 				}
 				const approved = await ctx.ui.confirm(
 					"OMEGA out-of-scope target confirmation",
@@ -125,7 +133,8 @@ export function registerPermissions(omega: OmegaAPI): void {
 				typeof event.input === "object" && event.input !== null && "command" in event.input
 					? (event.input as { command?: unknown }).command
 					: undefined;
-			if (typeof command !== "string") return { block: true, reason: "bash tool is missing a valid command argument" };
+			if (typeof command !== "string")
+				return { block: true, reason: "bash tool is missing a valid command argument" };
 			subject = command;
 			category = "Bash command";
 			const builtInDeny = evaluateBuiltInDeny(command);

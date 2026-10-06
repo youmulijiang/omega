@@ -541,7 +541,9 @@ export class SubagentConversationView implements Component, Focusable {
 			...Array.from({ length: Math.max(0, this.bodyRows - body.length) }, () => ""),
 			this.theme.fg("border", "─".repeat(innerWidth)),
 			this.renderFooter(innerWidth),
-			...(this.onSubmit ? [this.theme.fg("dim", "Send a follow-up prompt to the current subagent:"), ...editorLines] : []),
+			...(this.onSubmit
+				? [this.theme.fg("dim", "Send a follow-up prompt to the current subagent:"), ...editorLines]
+				: []),
 		];
 		const title = " Agent runtime ";
 		return [
