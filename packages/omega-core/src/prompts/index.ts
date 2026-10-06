@@ -1,7 +1,7 @@
 import type { OmegaAPI } from "../api.ts";
-import { appendPrompts, loadProjectSystemPrompt } from "./loader.ts";
+import { appendPrompts, loadProjectAgentsFile, loadProjectSystemPrompt } from "./loader.ts";
 
-export { appendPrompt, appendPrompts, loadProjectSystemPrompt, loadPrompt } from "./loader.ts";
+export { appendPrompt, appendPrompts, loadProjectAgentsFile, loadProjectSystemPrompt, loadPrompt } from "./loader.ts";
 
 export type ContextPromptName = "web-testing" | "log-analysis";
 
@@ -24,18 +24,28 @@ export function registerPrompts(omega: OmegaAPI): void {
 		activeContextPrompts = [];
 	});
 	omega.on("before_agent_start", async (event, ctx) => {
+		// Pi wraps the AGENTS.md files it discovers in this exact element, so a
+		// project-local file injected here reads to the model like any other.
+		const agentsFile = await loadProjectAgentsFile(ctx.cwd);
+		const withAgentsFile = (systemPrompt: string): string =>
+			agentsFile
+				? `${systemPrompt.trimEnd()}\n\n<project_instructions path="${agentsFile.path}">\n${agentsFile.content}\n</project_instructions>`
+				: systemPrompt;
+
 		const projectPrompt = await loadProjectSystemPrompt(ctx.cwd);
 		if (projectPrompt) {
 			return {
-				systemPrompt: projectPrompt.content
-					? `${event.systemPrompt.trimEnd()}\n\n${projectPrompt.content}`
-					: event.systemPrompt,
+				systemPrompt: withAgentsFile(
+					projectPrompt.content
+						? `${event.systemPrompt.trimEnd()}\n\n${projectPrompt.content}`
+						: event.systemPrompt,
+				),
 			};
 		}
 		const selected = selectContextPrompts(event.prompt);
 		if (selected.length > 0) activeContextPrompts = selected;
 		return {
-			systemPrompt: appendPrompts(event.systemPrompt, ["system", ...activeContextPrompts]),
+			systemPrompt: withAgentsFile(appendPrompts(event.systemPrompt, ["system", ...activeContextPrompts])),
 		};
 	});
 }

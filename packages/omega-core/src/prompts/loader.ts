@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const PROMPT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
@@ -71,4 +72,28 @@ export async function loadProjectSystemPrompt(cwd: string): Promise<ProjectSyste
 		}
 	}
 	return undefined;
+}
+
+/**
+ * Load the `.omega/agent/AGENTS.md` that `omega init` writes.
+ *
+ * Pi discovers AGENTS.md in the agent directory and in the working directory's
+ * ancestors, so a project-local `.omega/agent/AGENTS.md` only reaches the model
+ * when the agent directory happens to be that exact path. Return undefined in
+ * that case: pi has already injected the file, and appending it again would
+ * duplicate every instruction.
+ */
+export async function loadProjectAgentsFile(
+	cwd: string,
+	agentDirectory: string = getAgentDir(),
+): Promise<ProjectSystemPrompt | undefined> {
+	const path = join(cwd, ".omega", "agent", "AGENTS.md");
+	if (resolve(path) === resolve(join(agentDirectory, "AGENTS.md"))) return undefined;
+	try {
+		const content = (await readFile(path, "utf8")).trim();
+		return content ? { content, path } : undefined;
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+		throw error;
+	}
 }

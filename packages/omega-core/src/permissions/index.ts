@@ -148,12 +148,15 @@ export function registerPermissions(omega: OmegaAPI): void {
 			resolved = evaluateRules(subject, policy.mcp, toolRule.decision);
 		}
 
-		if (!isBuiltInBulkRisk && permissionLevel === "full access") return undefined;
-		if (!isBuiltInBulkRisk && permissionLevel === "approve for me" && resolved.decision !== "deny") return undefined;
-		if (resolved.decision === "allow") return undefined;
+		// An explicit `deny` rule outranks the permission level: "full access" only
+		// suppresses approval prompts, it must not turn a denied operation into an
+		// allowed one (that is what the level-independent built-in rules are for).
 		if (resolved.decision === "deny") {
 			return { block: true, reason: `权限策略拒绝${category}：${subject}` };
 		}
+		if (!isBuiltInBulkRisk && permissionLevel === "full access") return undefined;
+		if (!isBuiltInBulkRisk && permissionLevel === "approve for me") return undefined;
+		if (resolved.decision === "allow") return undefined;
 		const approvalKey = `${event.toolName}\0${subject}\0${resolved.pattern ?? "<default>"}`;
 		if (approvedRequests.has(approvalKey)) return undefined;
 

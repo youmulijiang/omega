@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { appendPrompt, loadPrompt, registerPrompts, selectContextPrompts } from "../src/prompts/index.ts";
+import {
+	appendPrompt,
+	loadProjectAgentsFile,
+	loadPrompt,
+	registerPrompts,
+	selectContextPrompts,
+} from "../src/prompts/index.ts";
 import { buildSecurityPrompt } from "../src/prompts/security.ts";
 
 const temporaryDirectories: string[] = [];
@@ -109,5 +115,81 @@ describe("buildSecurityPrompt", () => {
 		expect(result.systemPrompt).toContain("项目专属系统提示");
 		expect(result.systemPrompt).not.toContain("# OMEGA Agent");
 		expect(result.systemPrompt).not.toContain("Web Penetration Testing Guidance");
+	});
+});
+
+describe("project AGENTS.md", () => {
+	const scaffoldAgentsFile = (cwd: string, agentDirectory = join(cwd, ".omega", "agent")): void => {
+		mkdirSync(agentDirectory, { recursive: true });
+		writeFileSync(join(agentDirectory, "AGENTS.md"), "# 授权边界\n\n本项目仅授权测试 10.0.0.0/24。", "utf8");
+	};
+
+	it("injects the .omega/agent/AGENTS.md that omega init writes", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-agents-file-"));
+		temporaryDirectories.push(cwd);
+		scaffoldAgentsFile(cwd);
+		const handlers = new Map<string, (...args: never[]) => unknown>();
+		const pi = {
+			on: (event: string, handler: (...args: never[]) => unknown) => handlers.set(event, handler),
+			registerTool: () => undefined,
+		} as unknown as ExtensionAPI;
+		registerPrompts(pi);
+
+		const result = (await handlers.get("before_agent_start")?.(
+			{ prompt: "介绍一下当前项目", systemPrompt: "pi base" } as never,
+			{ cwd } as never,
+		)) as { systemPrompt: string };
+
+		expect(result.systemPrompt).toContain("pi base");
+		expect(result.systemPrompt).toContain("<project_instructions path=");
+		expect(result.systemPrompt).toContain("授权边界");
+		expect(result.systemPrompt).toContain("10.0.0.0/24");
+	});
+
+	it("also reaches the model when a project system.md overrides the built-in prompt", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-agents-with-system-"));
+		temporaryDirectories.push(cwd);
+		scaffoldAgentsFile(cwd);
+		mkdirSync(join(cwd, ".omega"), { recursive: true });
+		writeFileSync(join(cwd, ".omega", "system.md"), "# 项目专属系统提示", "utf8");
+		const handlers = new Map<string, (...args: never[]) => unknown>();
+		const pi = {
+			on: (event: string, handler: (...args: never[]) => unknown) => handlers.set(event, handler),
+			registerTool: () => undefined,
+		} as unknown as ExtensionAPI;
+		registerPrompts(pi);
+
+		const result = (await handlers.get("before_agent_start")?.(
+			{ prompt: "介绍一下当前项目", systemPrompt: "pi base" } as never,
+			{ cwd } as never,
+		)) as { systemPrompt: string };
+
+		expect(result.systemPrompt).toContain("# 项目专属系统提示");
+		expect(result.systemPrompt).toContain("授权边界");
+		expect(result.systemPrompt).not.toContain("# OMEGA Agent");
+	});
+
+	it("skips the file when pi already loads it from the agent directory", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-agents-dedupe-"));
+		temporaryDirectories.push(cwd);
+		const agentDirectory = join(cwd, ".omega", "agent");
+		scaffoldAgentsFile(cwd, agentDirectory);
+
+		// A foreign agent directory is not the project one, so Omega must inject the file.
+		expect(await loadProjectAgentsFile(cwd, join(cwd, "elsewhere"))).toEqual(
+			expect.objectContaining({ content: expect.stringContaining("授权边界") }),
+		);
+		// `omega-test.sh` points the agent directory at the project one; pi injects it there.
+		expect(await loadProjectAgentsFile(cwd, agentDirectory)).toBeUndefined();
+	});
+
+	it("ignores a missing or empty file", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "omega-agents-empty-"));
+		temporaryDirectories.push(cwd);
+		expect(await loadProjectAgentsFile(cwd, join(cwd, "elsewhere"))).toBeUndefined();
+
+		scaffoldAgentsFile(cwd);
+		writeFileSync(join(cwd, ".omega", "agent", "AGENTS.md"), "   \n\n", "utf8");
+		expect(await loadProjectAgentsFile(cwd, join(cwd, "elsewhere"))).toBeUndefined();
 	});
 });
