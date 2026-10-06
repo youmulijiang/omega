@@ -10,6 +10,7 @@ export {
 	getExamplesPath,
 	getPackageDir,
 	getReadmePath,
+	setEmbeddedQuickJSWasmPath,
 	VERSION,
 } from "./config.ts";
 export {

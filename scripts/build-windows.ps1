@@ -187,10 +187,14 @@ Set-Location $agentDir
 $omegaEntry = Join-Path $repoRoot 'packages/omega-core/dist/bun/cli.js'
 $omegaDist = Join-Path $repoRoot 'packages/omega-core/dist'
 $imageWorker = Join-Path $agentDir 'src/utils/image-resize-worker.ts'
+$codemodeWorker = 'src/extensions/codemode/worker.ts'
 $iconSource = Join-Path $repoRoot 'icon/omega.ico'
 
 if (-not (Test-Path -LiteralPath $omegaEntry)) {
     Die "OMEGA binary entry is missing: $omegaEntry. Run without -SkipBuild first."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $agentDir $codemodeWorker))) {
+    Die "Codemode worker entry is missing: $codemodeWorker"
 }
 if (-not (Test-Path -LiteralPath $iconSource)) {
     Die "Windows icon source is missing: $iconSource"
@@ -239,6 +243,7 @@ foreach ($plat in $platforms) {
         --windows-icon=$windowsIcon `
         $omegaEntry `
         $imageWorker `
+        $codemodeWorker `
         @omegaAssets `
         --outfile $exePath
 

@@ -1,11 +1,12 @@
 name: Publish npm packages
 
-# Publishes the Omega fork of pi-coding-agent and the omega CLI to npm.
+# Publishes the Omega forks (@youmulijiang/pi-ai, @youmulijiang/pi-coding-agent)
+# and the omega CLI to npm.
 #
-# omega depends on a patched coding-agent, which npm does not carry under the
-# upstream name, so the fork is published separately and omega aliases it. The
-# fork must reach the registry before omega, otherwise omega's dependency cannot
-# resolve; scripts/publish-omega-forks.mjs enforces that order.
+# omega depends on patched forks, which npm does not carry under the upstream
+# names, so the forks are published separately and omega aliases them. The
+# forks must reach the registry before omega, otherwise omega's dependencies
+# cannot resolve; scripts/publish-omega-forks.mjs enforces that order.
 #
 # Requires the NPM_TOKEN repository secret: an npm automation token with publish
 # rights for the @youmulijiang scope.
