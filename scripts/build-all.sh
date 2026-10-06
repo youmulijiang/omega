@@ -172,10 +172,15 @@ cd packages/coding-agent
 OMEGA_ENTRY="../omega-core/dist/bun/cli.js"
 OMEGA_DIST="../omega-core/dist"
 IMAGE_WORKER="src/utils/image-resize-worker.ts"
+CODEMODE_WORKER="src/extensions/codemode/worker.ts"
 ICON_SOURCE="../../icon/omega.ico"
 
 if [[ ! -f "$OMEGA_ENTRY" ]]; then
     echo "OMEGA binary entry is missing: $OMEGA_ENTRY. Run without --skip-build first." >&2
+    exit 1
+fi
+if [[ ! -f "$CODEMODE_WORKER" ]]; then
+    echo "Codemode worker entry is missing: $CODEMODE_WORKER" >&2
     exit 1
 fi
 if [[ ! -f "$ICON_SOURCE" ]]; then
@@ -222,8 +227,10 @@ for platform in "${PLATFORMS[@]}"; do
     fi
 
     # Bun compiled executables only embed worker scripts when they are passed as
-    # explicit build entrypoints. The runtime can still use new URL(...), but the
-    # worker must be present in the compiled executable.
+    # explicit build entrypoints. The runtime resolves the codemode worker as
+    # ./src/extensions/codemode/worker.ts inside the compiled executable (see
+    # resolveCodemodeWorkerSpecifier in config.ts), so it must stay a source
+    # entrypoint here.
     #
     # Disable cwd bunfig.toml autoload so project preload scripts cannot crash the
     # standalone binary before pi starts (see #7684).
@@ -232,12 +239,12 @@ for platform in "${PLATFORMS[@]}"; do
         node ../../scripts/create-windows-icon.mjs "$ICON_SOURCE" "$windows_icon"
         bun build --compile --no-compile-autoload-bunfig --target="$bun_target" \
             --windows-icon="$windows_icon" \
-            "$OMEGA_ENTRY" "$IMAGE_WORKER" \
+            "$OMEGA_ENTRY" "$IMAGE_WORKER" "$CODEMODE_WORKER" \
             "${ASSET_ARGS[@]}" \
             --outfile "$OUTPUT_DIR/$platform/omega.exe"
     else
         bun build --compile --no-compile-autoload-bunfig --target="$bun_target" \
-            "$OMEGA_ENTRY" "$IMAGE_WORKER" \
+            "$OMEGA_ENTRY" "$IMAGE_WORKER" "$CODEMODE_WORKER" \
             "${ASSET_ARGS[@]}" \
             --outfile "$OUTPUT_DIR/$platform/omega"
     fi

@@ -57,11 +57,6 @@ if [[ "$NO_ENV" == "true" ]]; then
   echo "Running without API keys..."
 fi
 
-TSX_BIN="$SCRIPT_DIR/node_modules/.bin/tsx"
-if [[ ! -x "$TSX_BIN" ]]; then
-  echo "tsx not found at $TSX_BIN. Run npm install from the repo root first." >&2
-  exit 1
-fi
-
-# --tsconfig is passed explicitly so the script works from any working directory
-exec "$TSX_BIN" --tsconfig "$SCRIPT_DIR/tsconfig.json" "$SCRIPT_DIR/packages/omega-core/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}
+# --import takes a module specifier, so pass the resolver as a file URL (raw paths break on #, ?, %).
+RESOLVER_URL="$(node -p 'require("node:url").pathToFileURL(process.argv[1]).href' "$SCRIPT_DIR/packages/coding-agent/src/experimental/source-resolver.ts")"
+node --import "$RESOLVER_URL" "$SCRIPT_DIR/packages/omega-core/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}

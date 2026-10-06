@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("Together models", () => {
-	it("registers Kimi K3 via OpenAI-compatible Chat Completions API", () => {
+	it("registers the default Kimi K3 model via OpenAI-compatible Chat Completions API", () => {
 		const model = getModel("together", "moonshotai/Kimi-K3");
 
 		expect(model).toBeDefined();
@@ -58,7 +58,7 @@ describe("Together models", () => {
 			thinkingFormat: "openai",
 		});
 
-		const deepSeekV4 = getModel("together", "deepseek-ai/DeepSeek-V4-Pro");
+		const deepSeekV4 = getModel("together", "deepseek-ai/DeepSeek-V4-Pro-0813");
 		expect(deepSeekV4.thinkingLevelMap).toEqual({
 			minimal: null,
 			low: null,

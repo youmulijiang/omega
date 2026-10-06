@@ -6,6 +6,7 @@ import {
 	onTodoReplacement,
 	registerTodo,
 	replaceTodosFromPlan,
+	resolveTodoTaskSwitch,
 	syncTodosWithPlan,
 	TODO_CONTINUE_CURRENT,
 	TODO_START_NEW,
@@ -168,7 +169,6 @@ describe("todo extension", () => {
 
 	it("asks before replacing unfinished work and clears both todo and plan state for a new task", async () => {
 		let tool: RegisteredTool | undefined;
-		let inputHandler: ((event: { source: string; text: string }, ctx: ExtensionContext) => Promise<unknown>) | undefined;
 		const planReplacement = vi.fn();
 		const select = vi.fn().mockResolvedValue(TODO_START_NEW);
 		const appendEntry = vi.fn();
@@ -179,9 +179,7 @@ describe("todo extension", () => {
 			},
 			registerCommand: vi.fn(),
 			registerShortcut: vi.fn(),
-			on: (event: string, handler: typeof inputHandler) => {
-				if (event === "input") inputHandler = handler;
-			},
+			on: vi.fn(),
 		} as unknown as OmegaAPI;
 		const ctx = {
 			hasUI: true,
@@ -194,17 +192,16 @@ describe("todo extension", () => {
 		onTodoReplacement(pi, planReplacement);
 		await tool?.execute("create-old", { action: "create", subject: "Finish old task" }, undefined, undefined, ctx);
 		await tool?.execute("start-old", { action: "update", id: 1, status: "in_progress" }, undefined, undefined, ctx);
-		const result = await inputHandler?.({ source: "interactive", text: "Start another task" }, ctx);
+		const decision = await resolveTodoTaskSwitch(pi, ctx);
 
 		expect(select).toHaveBeenCalledWith("Current todo: Finish old task", [TODO_CONTINUE_CURRENT, TODO_START_NEW]);
-		expect(result).toEqual({ action: "continue" });
+		expect(decision).toEqual({ kind: "start_new" });
 		expect(planReplacement).toHaveBeenCalledWith(ctx);
 		expect(appendEntry).toHaveBeenLastCalledWith("omega-todo-state", { tasks: [], nextId: 1 });
 	});
 
 	it("keeps the current todo when the user chooses to continue it", async () => {
 		let tool: RegisteredTool | undefined;
-		let inputHandler: ((event: { source: string; text: string }, ctx: ExtensionContext) => Promise<unknown>) | undefined;
 		const pi = {
 			appendEntry: vi.fn(),
 			registerTool: (candidate: RegisteredTool) => {
@@ -212,9 +209,7 @@ describe("todo extension", () => {
 			},
 			registerCommand: vi.fn(),
 			registerShortcut: vi.fn(),
-			on: (event: string, handler: typeof inputHandler) => {
-				if (event === "input") inputHandler = handler;
-			},
+			on: vi.fn(),
 		} as unknown as OmegaAPI;
 		const ctx = {
 			hasUI: true,
@@ -231,12 +226,23 @@ describe("todo extension", () => {
 
 		registerTodo(pi);
 		await tool?.execute("create-current", { action: "create", subject: "Finish current task" }, undefined, undefined, ctx);
-		const result = await inputHandler?.({ source: "interactive", text: "Start another task" }, ctx);
+		const decision = await resolveTodoTaskSwitch(pi, ctx);
 
-		expect(result).toEqual({
-			action: "transform",
-			text: "Continue the current todo before starting another task. Current todo: Finish current task",
-			images: [],
-		});
+		expect(decision).toEqual({ kind: "continue_current", subject: "Finish current task" });
+	});
+
+	it("does not intercept ordinary input while a todo is unfinished", () => {
+		const registered: string[] = [];
+		const pi = {
+			appendEntry: vi.fn(),
+			registerTool: vi.fn(),
+			registerCommand: vi.fn(),
+			registerShortcut: vi.fn(),
+			on: (event: string) => registered.push(event),
+		} as unknown as OmegaAPI;
+
+		registerTodo(pi);
+
+		expect(registered).not.toContain("input");
 	});
 });

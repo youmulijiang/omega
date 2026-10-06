@@ -17,17 +17,18 @@
   "types": "./dist/entry.d.ts",
   "scripts": {
     "clean": "shx rm -rf dist",
-    "build": "tsgo -p tsconfig.build.json && shx cp -r src/subagents/agents dist/subagents/agents && shx cp -r src/prompts/*.md dist/prompts && shx cp src/background/core/delegate/hook-contract-evidence.json dist/background/core/delegate/hook-contract-evidence.json && shx chmod +x dist/cli.js dist/bun/cli.js",
+    "build": "tsc -p tsconfig.build.json && shx cp -r src/subagents/agents dist/subagents/agents && shx cp -r src/prompts/*.md dist/prompts && shx cp src/background/core/delegate/hook-contract-evidence.json dist/background/core/delegate/hook-contract-evidence.json && shx chmod +x dist/cli.js dist/bun/cli.js",
     "build:browser-plugin": "node ../../scripts/package-browser-plugin.mjs",
     "test": "vitest --run"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.86.1",
-    "@earendil-works/pi-coding-agent": "0.86.1",
-    "@earendil-works/pi-tui": "0.86.1",
+    "@earendil-works/pi-ai": "1.0.3",
+    "@earendil-works/pi-coding-agent": "1.0.3",
+    "@earendil-works/pi-tui": "1.0.3",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@narumitw/pi-tui-kit": "0.56.0",
     "acorn": "8.16.0",
+    "quickjs-wasi": "3.6.2",
     "turndown": "7.2.4",
     "typebox": "1.3.7"
   },

@@ -146,10 +146,11 @@ npm install --ignore-scripts
 | `/study <内容>` | 在后台学习指定内容,蒸馏后写入本地知识库 |
 | `/study:list`、`/study:status` | 列出知识库索引;实时查看学习过程 |
 | `/cost [models\|export]` | 会话 Token 与费用图表、按模型明细、HTML 导出 |
-| `/btw <问题>` | 快速提问,不污染主对话 |
+| `/btw [问题]` | 结合主会话只读上下文提问；省略问题可配置或恢复侧线对话 |
 | `/todos` | 显示或隐藏待办执行面板 |
 | `/sidebar on\|off\|left\|right\|width <列数\|auto>` | 控制侧边栏 |
-| `/mcp`、`/mcp:list`、`/mcp:status` | 配置 MCP 服务器并检视其工具 |
+| `/mcp` | 管理 MCP 服务器、登录、重连并检视其工具 |
+| `/smithery <查询>` | 搜索 Smithery 并添加 MCP 服务器 |
 | `/chrome-devtools`、`/browser-bridge` | Chrome DevTools 工具与扩展桥 |
 | `/workflows` | 查看、运行、列出、校验与管理 Omega workflows |
 | `/init` | 初始化 `.omega/` 配置与 workflows 目录 |
@@ -171,7 +172,8 @@ npm install --ignore-scripts
 | `workflow` / `structured_output` | 运行确定性的多步骤 workflow 脚本并返回结构化结果 |
 | `memory_write` / `memory_read` / `memory_search` / `memory_forget` / `memory_restore` / `memory_status` | 持久且可检视的记忆 |
 | `scratchpad` / `todo` | 过程记录与多步骤执行的可见清单 |
-| `mcp` / `fork` | 调用 MCP 服务器工具;在独立子进程中执行任务 |
+| `codemode` / `mcp__<server>__<tool>` | 通过内置 MCP 集成调用服务器工具 |
+| `fork` | 在独立子进程中执行任务 |
 
 ## 子代理
 

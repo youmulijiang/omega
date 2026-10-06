@@ -704,7 +704,7 @@ describe("ModelRegistry", () => {
 			expect(sonnet?.name).toBe("Custom Sonnet Name");
 
 			// Other models should be unchanged
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const opus = models.find((m) => m.id === "anthropic/claude-opus-4.1");
 			expect(opus?.name).not.toBe("Custom Sonnet Name");
 		});
 
@@ -754,7 +754,7 @@ describe("ModelRegistry", () => {
 			expect(compat?.allowedFallbackModels).toEqual([]);
 		});
 
-		test("custom model and model override carry sampling params", async () => {
+		test("custom models and model overrides carry sampling params", async () => {
 			writeRawModelsJson({
 				openrouter: {
 					baseUrl: "https://my-proxy.example.com/v1",
@@ -763,11 +763,22 @@ describe("ModelRegistry", () => {
 						{
 							id: "custom/sampling-model",
 							samplingParams: { temperature: 1, top_p: 0.95, top_k: 0 },
+							samplingParamsByThinkingLevel: {
+								low: { temperature: 0.6, top_p: 0.95 },
+								high: { temperature: 0.8 },
+							},
 						},
 					],
 					modelOverrides: {
+						"custom/sampling-model": {
+							samplingParamsByThinkingLevel: {
+								low: { temperature: 0.5, top_k: 20 },
+								max: { temperature: 1 },
+							},
+						},
 						"anthropic/claude-sonnet-4": {
 							samplingParams: { top_p: 0.9 },
+							samplingParamsByThinkingLevel: { high: { temperature: 0.8 } },
 						},
 					},
 				},
@@ -778,13 +789,20 @@ describe("ModelRegistry", () => {
 
 			const custom = models.find((m) => m.id === "custom/sampling-model");
 			expect(custom?.samplingParams).toEqual({ temperature: 1, top_p: 0.95, top_k: 0 });
+			expect(custom?.samplingParamsByThinkingLevel).toEqual({
+				low: { temperature: 0.5, top_p: 0.95, top_k: 20 },
+				high: { temperature: 0.8 },
+				max: { temperature: 1 },
+			});
 
 			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
 			expect(sonnet?.samplingParams).toEqual({ top_p: 0.9 });
+			expect(sonnet?.samplingParamsByThinkingLevel).toEqual({ high: { temperature: 0.8 } });
 
 			// Models without sampling config keep it unset.
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const opus = models.find((m) => m.id === "anthropic/claude-opus-4.1");
 			expect(opus?.samplingParams).toBeUndefined();
+			expect(opus?.samplingParamsByThinkingLevel).toBeUndefined();
 		});
 
 		test("custom model and model override carry prompt cache lifetimes", async () => {
@@ -810,7 +828,7 @@ describe("ModelRegistry", () => {
 			expect(registry.getError()).toBeUndefined();
 			expect(openrouter.find((m) => m.id === "custom/cached-model")?.promptCache).toEqual({ short: 120 });
 			expect(openrouter.find((m) => m.id === "anthropic/claude-sonnet-4")?.promptCache).toEqual({ short: 300 });
-			expect(openrouter.find((m) => m.id === "anthropic/claude-opus-4")?.promptCache).toBeUndefined();
+			expect(openrouter.find((m) => m.id === "anthropic/claude-opus-4.1")?.promptCache).toBeUndefined();
 			// Overrides merge per tier with the built-in catalog.
 			expect(registry.find("anthropic", "claude-sonnet-4-6")?.promptCache).toEqual({ short: 300, long: 1800 });
 		});
@@ -898,7 +916,7 @@ describe("ModelRegistry", () => {
 			const registry = await createModelRegistry(authStorage, modelsJsonPath);
 			const models = getModelsForProvider(registry, "openrouter");
 			const sonnet = models.find((model) => model.id === "anthropic/claude-sonnet-4");
-			const opus = models.find((model) => model.id === "anthropic/claude-opus-4");
+			const opus = models.find((model) => model.id === "anthropic/claude-opus-4.1");
 
 			expect((sonnet?.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(false);
 			expect((opus?.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(true);
@@ -933,7 +951,7 @@ describe("ModelRegistry", () => {
 						"anthropic/claude-sonnet-4": {
 							compat: { openRouterRouting: { only: ["amazon-bedrock"] } },
 						},
-						"anthropic/claude-opus-4": {
+						"anthropic/claude-opus-4.1": {
 							compat: { openRouterRouting: { only: ["anthropic"] } },
 						},
 					},
@@ -944,7 +962,7 @@ describe("ModelRegistry", () => {
 			const models = getModelsForProvider(registry, "openrouter");
 
 			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const opus = models.find((m) => m.id === "anthropic/claude-opus-4.1");
 
 			const sonnetCompat = sonnet?.compat as OpenAICompletionsCompat | undefined;
 			const opusCompat = opus?.compat as OpenAICompletionsCompat | undefined;
@@ -973,7 +991,7 @@ describe("ModelRegistry", () => {
 			expect(sonnet?.name).toBe("Proxied Sonnet");
 
 			// Other models should have the baseUrl but not the name override
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const opus = models.find((m) => m.id === "anthropic/claude-opus-4.1");
 			expect(opus?.baseUrl).toBe("https://my-proxy.example.com/v1");
 			expect(opus?.name).not.toBe("Proxied Sonnet");
 		});

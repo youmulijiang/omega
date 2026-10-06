@@ -237,30 +237,9 @@ export function registerTodo(omega: OmegaAPI): void {
 		handler: async (ctx) => togglePanel(ctx),
 	});
 
-	omega.on("input", async (event, ctx) => {
-		if (event.source === "extension") return { action: "continue" };
-		if (event.streamingBehavior) {
-			// 运行中插入（steer/followUp）：智能体已经在做当前 todo，不能再弹「继续/新建」
-			// 选择窗，更不能把用户原文替换掉。保留 todo 提醒并把原文附在后面，由模型据此
-			// 用 todo 工具调整列表。
-			const current = currentTodoTask(getState(ctx));
-			if (!current) return { action: "continue" };
-			return {
-				action: "transform",
-				text: todoInterjectionPrompt(current.subject, event.text),
-			};
-		}
-		const decision = await resolveTodoTaskSwitch(omega, ctx);
-		if (decision.kind === "continue_current") {
-			// 同样保留原文与附件：用户在弹窗里选的是「继续当前 todo」，
-			// 不代表可以丢掉他这次输入的内容。
-			return {
-				action: "transform",
-				text: todoInterjectionPrompt(decision.subject, event.text),
-			};
-		}
-		return decision.kind === "cancel" ? { action: "handled" } : { action: "continue" };
-	});
+	// The task-switch guard intentionally runs only at explicit new-task entry points
+	// (for example `/plan <prompt>`). Intercepting every input would replace the user's
+	// own message while a todo is unfinished, blocking mid-task context injection.
 
 	const restore = async (_event: unknown, ctx: ExtensionContext): Promise<void> => {
 		renderState(ctx, restoreState(ctx));

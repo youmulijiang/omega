@@ -125,6 +125,7 @@ type InteractiveBashContext = {
 	pendingBashComponents: unknown[];
 	isBashMode: boolean;
 	handleBashCommand(command: string, excludeFromContext?: boolean): Promise<void>;
+	isBuiltinCommandOverride(text: string): boolean;
 	showError(message: string): void;
 	updateEditorBorderColor(): void;
 };
@@ -132,6 +133,7 @@ type InteractiveBashContext = {
 const interactiveModePrototype = InteractiveMode.prototype as unknown as {
 	setupEditorSubmitHandler(this: InteractiveBashContext): void;
 	handleBashCommand(this: InteractiveBashContext, command: string, excludeFromContext?: boolean): Promise<void>;
+	isBuiltinCommandOverride(this: InteractiveBashContext, text: string): boolean;
 };
 
 const localResult = {
@@ -247,6 +249,7 @@ describe("Interactive user_bash failure handling (#9068)", () => {
 			pendingBashComponents: [],
 			isBashMode: true,
 			handleBashCommand: interactiveModePrototype.handleBashCommand,
+			isBuiltinCommandOverride: interactiveModePrototype.isBuiltinCommandOverride,
 			showError: vi.fn(),
 			updateEditorBorderColor: vi.fn(),
 		};

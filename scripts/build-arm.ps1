@@ -215,9 +215,13 @@ Set-Location $agentDir
 $omegaEntry = Join-Path $repoRoot 'packages/omega-core/dist/bun/cli.js'
 $omegaDist = Join-Path $repoRoot 'packages/omega-core/dist'
 $imageWorker = Join-Path $agentDir 'src/utils/image-resize-worker.ts'
+$codemodeWorker = 'src/extensions/codemode/worker.ts'
 
 if (-not (Test-Path -LiteralPath $omegaEntry)) {
     Die "OMEGA binary entry is missing: $omegaEntry. Run without -SkipBuild first."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $agentDir $codemodeWorker))) {
+    Die "Codemode worker entry is missing: $codemodeWorker"
 }
 
 # Bun only embeds files that are part of the compile inputs. Omega loads its
@@ -258,6 +262,7 @@ foreach ($plat in $platforms) {
         --target=$bunTarget `
         $omegaEntry `
         $imageWorker `
+        $codemodeWorker `
         @omegaAssets `
         --outfile $exePath
 

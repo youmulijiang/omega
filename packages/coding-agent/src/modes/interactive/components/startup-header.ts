@@ -1,9 +1,17 @@
-import { Text, type TUI } from "@earendil-works/pi-tui";
+import { Text, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 
 const SPINNER_FRAMES = ["|", "/", "-", "\\"];
 
 /** Expandable built-in startup header with a non-blocking typewriter onboarding line. */
 export class StartupHeader extends Text {
+	onLogoClick: ((column: number, row: number) => void) | undefined;
+
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "click" || event.y > 1 || event.x < 1 || event.x > 4 || !this.onLogoClick) return undefined;
+		this.onLogoClick(event.screenX - event.x + 1, event.screenY - event.y);
+		return { handled: true };
+	}
+
 	private characters = 0;
 	private spinnerFrame = 0;
 	private expanded: boolean;

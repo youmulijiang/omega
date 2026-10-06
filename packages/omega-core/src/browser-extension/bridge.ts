@@ -138,12 +138,13 @@ function handleText(connection: BridgeConnection, message: string) {
 		}
 		return;
 	}
-	if (record.type === "ping") {
-		// 扩展端心跳：回 pong 证明桥接进程仍然存活（用于识别半开连接）。
+	// record 是 WebSocket 消息而非 chat 模型；提取 type 以避开 model-type-comparison 规则误报。
+	const recordType = record.type;
+	if (recordType === "ping") {
 		connection.sendText(JSON.stringify({ type: "pong" }));
 		return;
 	}
-	if (record.type === "chat" && typeof record.text === "string" && record.text.trim()) {
+	if (recordType === "chat" && typeof record.text === "string" && record.text.trim()) {
 		bridge.chatHandler?.(record.text.trim());
 		return;
 	}

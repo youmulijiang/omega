@@ -25,7 +25,7 @@ import {
 	resolveRunTimeoutMs,
 } from "../src/subagents/runner.ts";
 import { readSubagentSettings, writeSubagentSettings } from "../src/subagents/settings.ts";
-import { emptyUsage, isResultSuccess, type SingleResult } from "../src/subagents/types.ts";
+import { emptyUsage, isResultSuccess, isSettledTurnResult, type SingleResult } from "../src/subagents/types.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -429,6 +429,7 @@ describe("Omega subagent integration", () => {
 		writeSubagentSettings({ enabled: true }, settingsPath);
 
 		const keepAliveCalls: boolean[] = [];
+		const pendingRunCompletions: Array<() => void> = [];
 		const widgets = new Map<string, { render(width: number): string[] }>();
 		const fakeTui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
 		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as never;
@@ -457,6 +458,7 @@ describe("Omega subagent integration", () => {
 					sendPrompt: () => true,
 					setKeepAlive: (value: boolean) => keepAliveCalls.push(value),
 				});
+				await new Promise<void>((resolve) => pendingRunCompletions.push(resolve));
 				return {
 					taskId: options.taskId,
 					callIndex: options.callIndex,
@@ -508,7 +510,7 @@ describe("Omega subagent integration", () => {
 
 		const panel = () => widgets.get("omega.subagents.agents")?.render(200).join("\n") ?? "";
 		const runCall = (prompt: string) =>
-			tool!.execute("call-id", { calls: [{ agent: "explore", prompt }] }, undefined, () => undefined, ctx);
+			tool!.execute("call-id", { calls: [{ agent: "explore", prompt, initialContext: "empty" }] }, undefined, () => undefined, ctx);
 		const settleBackgroundRun = async () => {
 			for (let tick = 0; tick < 8; tick++) await new Promise((resolve) => setImmediate(resolve));
 		};
@@ -516,6 +518,9 @@ describe("Omega subagent integration", () => {
 		await runCall("first task");
 		await settleBackgroundRun();
 		expect(panel()).toContain("first task");
+		pendingRunCompletions.shift()!();
+		await settleBackgroundRun();
+		expect(panel()).toBe("");
 		// The run must release keep-alive before deleting the task entry, otherwise the idle child
 		// process outlives the run with no handle left that could ever close it.
 		expect(keepAliveCalls.filter((value) => value === false).length).toBeGreaterThan(1);
@@ -526,6 +531,80 @@ describe("Omega subagent integration", () => {
 		expect(after).toContain("second task");
 		// The finished agent from the previous run must not be re-rendered next to this run's calls.
 		expect(after).not.toContain("first task");
+		pendingRunCompletions.shift()!();
+		await settleBackgroundRun();
+		expect(panel()).toBe("");
+	});
+
+	it("follows the newest output until the user scrolls back", () => {
+		const messages = Array.from({ length: 20 }, (_, index) => ({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: `MARK-${index.toString().padStart(2, "0")}` }],
+			api: "anthropic-messages" as const,
+			provider: "test",
+			model: "test",
+			usage: emptyUsage(),
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		}));
+		const result: SingleResult = {
+			taskId: "subagent-9",
+			callIndex: 0,
+			agent: "worker",
+			agentSource: "builtin",
+			prompt: "Long run",
+			initialContext: "empty",
+			exitCode: -1,
+			messages,
+			stderr: "",
+			usage: emptyUsage(),
+			runtimeState: "running",
+		};
+		const tui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+		} as never;
+		const keybindings = {
+			matches: (data: string, action: string) =>
+				(data === "pgup" && action === "tui.select.pageUp") ||
+				(data === "pgdn" && action === "tui.select.pageDown"),
+			getKeys: (action: string) => [action],
+		} as never;
+		const viewer = new SubagentConversationView(() => [result], tui, theme, keybindings, () => undefined, 0);
+		const has = (marker: string) => viewer.render(80).some((line) => line.includes(marker));
+
+		expect(has("MARK-19")).toBe(true);
+		expect(has("MARK-00")).toBe(false);
+
+		for (let index = 0; index < 5; index++) viewer.handleInput("pgup");
+		expect(has("MARK-19")).toBe(false);
+		expect(has("MARK-00")).toBe(true);
+
+		for (let index = 0; index < 5; index++) viewer.handleInput("pgdn");
+		expect(has("MARK-19")).toBe(true);
+		viewer.dispose();
+	});
+
+
+	it("keeps a settled turn deliverable after its runtime closes", () => {
+		const base: SingleResult = {
+			agent: "worker",
+			agentSource: "builtin",
+			prompt: "Long run",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		const taskId = "subagent-1";
+
+		expect(isSettledTurnResult({ ...base, taskId })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "running", sawAgentSettled: true })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "idle", sawAgentSettled: true })).toBe(true);
+		// Process exit clears runtimeState and sets exitCode; the hand-back must survive both.
+		expect(isSettledTurnResult({ ...base, taskId, exitCode: 0, sawAgentSettled: true })).toBe(true);
 	});
 
 	it("registers flags, lifecycle handlers, the tool, and the discovery command", () => {

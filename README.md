@@ -146,10 +146,11 @@ The scripts run the CLI through `tsx`, so no build step is needed to exercise so
 | `/study <content>` | Study material in the background and distill it into the local knowledge base |
 | `/study:list`, `/study:status` | List the knowledge index; watch the learning process |
 | `/cost [models\|export]` | Session token and spend chart, per-model breakdown, HTML export |
-| `/btw <question>` | Ask a quick side question without polluting the main conversation |
+| `/btw [question]` | Ask a side question using read-only main-conversation context; omit the question to configure or resume a side thread |
 | `/todos` | Show or hide the todo execution panel |
 | `/sidebar on\|off\|left\|right\|width <n\|auto>` | Control the sidebar |
-| `/mcp`, `/mcp:list`, `/mcp:status` | Configure MCP servers and inspect their tools |
+| `/mcp` | Manage MCP servers, sign in, reconnect, and inspect their tools |
+| `/smithery <query>` | Search Smithery and add an MCP server |
 | `/chrome-devtools`, `/browser-bridge` | Chrome DevTools tooling and the extension bridge |
 | `/workflows` | Inspect, run, list, validate, and manage Omega workflows |
 | `/init` | Initialize `.omega/` configuration and the workflows directory |
@@ -171,7 +172,8 @@ Beyond Pi's built-in file, search, and shell tools, OMEGA registers:
 | `workflow` / `structured_output` | Run a deterministic multi-step workflow script and return a typed result |
 | `memory_write` / `memory_read` / `memory_search` / `memory_forget` / `memory_restore` / `memory_status` | Durable, inspectable memory |
 | `scratchpad` / `todo` | Working notes and a visible checklist for multi-step execution |
-| `mcp` / `fork` | Call MCP server tools; run a task in an isolated child process |
+| `codemode` / `mcp__<server>__<tool>` | Call MCP server tools through the built-in MCP integration |
+| `fork` | Run a task in an isolated child process |
 
 ## Subagents
 
