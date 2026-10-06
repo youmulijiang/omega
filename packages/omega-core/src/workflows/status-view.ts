@@ -79,7 +79,7 @@ export class WorkflowStatusView implements Component {
 		const body: string[] = [];
 		const runs = runsFromSnapshot(this.snapshot);
 		if (runs.length === 0) {
-			body.push(this.theme.fg("muted", "当前没有 workflow 运行记录。"));
+			body.push(this.theme.fg("muted", "No workflow run records."));
 		} else {
 			for (const run of runs) {
 				const color = run.state === "running" ? "warning" : run.state === "failed" ? "error" : "success";
@@ -106,12 +106,12 @@ export class WorkflowStatusView implements Component {
 				body.push(this.theme.fg("muted", `Prompt: ${selected.node.prompt.replace(/\s+/gu, " ").trim()}`));
 			body.push(...outputLines(selected.node, 14).map((line) => this.theme.fg("toolOutput", line)));
 		} else {
-			body.push(this.theme.fg("muted", "当前 workflow 尚未启动 agent。"));
+			body.push(this.theme.fg("muted", "The workflow has not started any agent yet."));
 		}
 		const up = this.keybindings.getKeys("tui.select.up")[0] ?? "up";
 		const down = this.keybindings.getKeys("tui.select.down")[0] ?? "down";
 		const cancel = this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc";
-		body.push("", this.theme.fg("dim", `${up}/${down} 选择 Agent · ${cancel} 关闭`));
+		body.push("", this.theme.fg("dim", `${up}/${down} select agent · ${cancel} close`));
 		const title = " Workflow runtime ";
 		const top = this.theme.fg("border", `╭${title}${"─".repeat(Math.max(0, safeWidth - visibleWidth(title) - 2))}╮`);
 		const bottom = this.theme.fg("border", `╰${"─".repeat(inner + 2)}╯`);

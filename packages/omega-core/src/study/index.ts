@@ -65,7 +65,7 @@ export function parseStudyResult(text: string): StudyResult {
 		.replace(/\s*```$/u, "")
 		.trim();
 	const value: unknown = JSON.parse(candidate);
-	if (!value || typeof value !== "object") throw new Error("学习模型返回了无效结果");
+	if (!value || typeof value !== "object") throw new Error("The study model returned an invalid result");
 	const result = value as Partial<StudyResult>;
 	if (
 		typeof result.sufficient !== "boolean" ||
@@ -79,7 +79,7 @@ export function parseStudyResult(text: string): StudyResult {
 		!result.summary.trim() ||
 		!result.content.trim()
 	) {
-		throw new Error("学习模型返回的知识结构不完整");
+		throw new Error("The knowledge structure returned by the study model is incomplete");
 	}
 	return result as StudyResult;
 }
@@ -92,37 +92,37 @@ async function runStudy(
 	reportProgress: StudyProgressReporter,
 ): Promise<StudyResult> {
 	const model = ctx.model;
-	if (!model) throw new Error("当前没有可用于学习的模型");
+	if (!model) throw new Error("No model is available for the study task");
 	const conversation = buildConversationContext(ctx.sessionManager.getBranch());
-	reportProgress("preparing", conversation ? "已读取当前会话并构建学习材料" : "当前会话为空，使用命令材料继续学习");
-	reportProgress("authenticating", `正在获取 ${model.provider}/${model.id} 的模型凭据`);
+	reportProgress("preparing", conversation ? "Read the current session and built the study material" : "Current session is empty; continuing the study with the command material");
+	reportProgress("authenticating", `Fetching model credentials for ${model.provider}/${model.id}`);
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-	if (!auth.ok) throw new Error(`无法获取当前模型凭据：${auth.error}`);
+	if (!auth.ok) throw new Error(`Failed to obtain current model credentials: ${auth.error}`);
 	signal.throwIfAborted();
 	const prompt = [
 		"<study_request>",
-		focus || "未指定额外材料，请从会话中提炼最有价值、可复用的知识。",
+		focus || "No extra material specified; distill the most valuable, reusable knowledge from the session.",
 		"</study_request>",
 		"",
 		"<conversation>",
-		conversation || "当前会话没有可读取的消息。",
+		conversation || "The current session has no readable messages.",
 		"</conversation>",
 	].join("\n");
-	reportProgress("analyzing", `AI 正在分析材料并蒸馏可复用知识（${model.id}）`);
+	reportProgress("analyzing", `AI is analyzing the material and distilling reusable knowledge (${model.id})`);
 	const response = await complete(
 		model,
 		{ systemPrompt: STUDY_SYSTEM_PROMPT, messages: [userMessage(prompt)] },
 		{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal },
 	);
-	if (response.stopReason === "error") throw new Error(response.errorMessage || "学习模型调用失败");
+	if (response.stopReason === "error") throw new Error(response.errorMessage || "The study model call failed");
 	signal.throwIfAborted();
-	reportProgress("parsing", "正在校验 AI 返回的知识结构与内容完整性");
+	reportProgress("parsing", "Validating the knowledge structure and content integrity returned by the AI");
 	return parseStudyResult(responseText(response));
 }
 
 function formatStudySummary(result: StudyResult, filename: string): string {
-	const tags = result.tags.length > 0 ? `\n\n标签：${result.tags.join("、")}` : "";
-	return `**学习完成**\n\n**${result.title}**\n\n${result.summary}${tags}\n\n已保存：\`~/.omega/knowledge/${filename}\``;
+	const tags = result.tags.length > 0 ? `\n\nTags: ${result.tags.join(", ")}` : "";
+	return `**Study complete**\n\n**${result.title}**\n\n${result.summary}${tags}\n\nSaved: \`~/.omega/knowledge/${filename}\``;
 }
 
 async function showStudyStatus(ctx: ExtensionCommandContext, tracker: StudyStatusTracker): Promise<void> {
@@ -157,14 +157,14 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 		activeStudy = undefined;
 		study?.controller.abort();
 		study?.status?.dispose();
-		if (study) statusTracker.cancel("会话已关闭或切换，后台学习已取消");
+		if (study) statusTracker.cancel("Session closed or switched; background study cancelled");
 	});
 
 	registerOmegaCommand(omega, "study", {
-		description: "在后台学习指定内容，结合当前会话蒸馏后保存到用户知识库",
+		description: "Study the given material in the background, distill it with the current session, and save it to the user knowledge base",
 		handler: async (args, ctx) => {
 			if (activeStudy) {
-				ctx.ui.notify("已有学习任务正在后台运行", "warning");
+				ctx.ui.notify("A study task is already running in the background", "warning");
 				return;
 			}
 
@@ -180,7 +180,7 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 			};
 			activeStudy = study;
 			statusTracker.start(args.trim());
-			ctx.ui.notify("学习任务已在后台启动，可继续对话", "info");
+			ctx.ui.notify("Study task started in the background; you can continue the conversation", "info");
 
 			void (async () => {
 				try {
@@ -190,19 +190,19 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 					);
 					study.controller.signal.throwIfAborted();
 					if (!result.sufficient) {
-						statusTracker.update("awaiting_confirmation", "知识证据不足，正在等待用户确认是否保存草稿");
+						statusTracker.update("awaiting_confirmation", "Insufficient knowledge evidence; waiting for user confirmation to save the draft");
 						const confirmed = await ctx.ui.confirm(
-							"上下文不足",
-							`${result.reason || "当前会话缺少足够的可复用经验。"}\n\n是否仍然进行学习并保存当前草稿？`,
+							"Insufficient context",
+							`${result.reason || "The current session lacks enough reusable experience."}\n\nProceed with the study and save the current draft anyway?`,
 						);
 						study.controller.signal.throwIfAborted();
 						if (!confirmed) {
-							statusTracker.cancel("用户取消保存证据不足的学习草稿");
-							ctx.ui.notify("已取消学习", "info");
+							statusTracker.cancel("User declined to save a study draft with insufficient evidence");
+							ctx.ui.notify("Study cancelled", "info");
 							return;
 						}
 					}
-					statusTracker.update("saving", "正在将蒸馏结果写入用户知识库");
+					statusTracker.update("saving", "Writing the distilled result into the user knowledge base");
 					const filename = await save({
 						title: result.title,
 						tags: result.tags,
@@ -215,7 +215,7 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 						summary: result.summary,
 						filename,
 					});
-					ctx.ui.notify(`知识已保存：~/.omega/knowledge/${filename}`, "info");
+					ctx.ui.notify(`Knowledge saved: ~/.omega/knowledge/${filename}`, "info");
 					omega.sendMessage(
 						{
 							customType: "omega-study-result",
@@ -229,7 +229,7 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 					if (!study.controller.signal.aborted) {
 						const message = error instanceof Error ? error.message : String(error);
 						statusTracker.fail(message);
-						ctx.ui.notify(`学习失败：${message}`, "error");
+						ctx.ui.notify(`Study failed: ${message}`, "error");
 					}
 				} finally {
 					study.status?.dispose();
@@ -240,14 +240,14 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 	});
 
 	registerOmegaCommand(omega, "study:status", {
-		description: "在对话框中实时查看 AI 学习知识的过程",
+		description: "Watch the AI knowledge study process live in a dialog",
 		handler: async (_args, ctx) => {
 			await showStudyStatus(ctx, statusTracker);
 		},
 	});
 
 	registerOmegaCommand(omega, "study:list", {
-		description: "列出知识库索引或查看指定知识内容",
+		description: "List the knowledge base index or view a specific knowledge entry",
 		handler: async (args, ctx) => {
 			try {
 				const name = args.trim();
@@ -257,12 +257,12 @@ export function registerStudy(omega: OmegaAPI, dependencies: StudyDependencies =
 				}
 				const document = await readContent(name);
 				if (!document) {
-					ctx.ui.notify(`未找到知识库索引项：${name}`, "warning");
+					ctx.ui.notify(`Knowledge base index entry not found: ${name}`, "warning");
 					return;
 				}
 				ctx.ui.notify(document.content, "info");
 			} catch (error) {
-				ctx.ui.notify(`读取知识库失败：${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(`Failed to read the knowledge base: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});

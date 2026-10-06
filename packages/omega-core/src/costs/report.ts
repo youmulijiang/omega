@@ -104,27 +104,27 @@ export function collectCostReport(
 			.join("\n") ?? "";
 	const estimates = new Map<string, number>([
 		[
-			"系统提示词（其余）",
+			"System prompt (rest)",
 			Math.max(
 				0,
 				estimateTextTokens(systemPrompt) - estimateTextTokens(contextText) - estimateTextTokens(skillsText),
 			),
 		],
-		["项目/上下文信息", estimateTextTokens(contextText)],
-		["Skill 清单", estimateTextTokens(skillsText)],
-		["用户消息", 0],
-		["Skill 文件响应", 0],
-		["MCP 响应", 0],
-		["其他工具响应", 0],
-		["模型文本输出", 0],
+		["Project/context info", estimateTextTokens(contextText)],
+		["Skill list", estimateTextTokens(skillsText)],
+		["User messages", 0],
+		["Skill file responses", 0],
+		["MCP responses", 0],
+		["Other tool responses", 0],
+		["Model text output", 0],
 	]);
 	let branchMessageCount = 0;
 	const skillReadIds = new Set<string>();
 	for (const entry of branchEntries) {
 		if (entry.type === "custom_message") {
 			estimates.set(
-				"项目/上下文信息",
-				(estimates.get("项目/上下文信息") ?? 0) + estimateTextTokens(contentText(entry.content)),
+				"Project/context info",
+				(estimates.get("Project/context info") ?? 0) + estimateTextTokens(contentText(entry.content)),
 			);
 			continue;
 		}
@@ -132,14 +132,14 @@ export function collectCostReport(
 		branchMessageCount++;
 		const message = entry.message;
 		if (message.role === "user") {
-			estimates.set("用户消息", (estimates.get("用户消息") ?? 0) + estimateTextTokens(contentText(message.content)));
+			estimates.set("User messages", (estimates.get("User messages") ?? 0) + estimateTextTokens(contentText(message.content)));
 		} else if (message.role === "toolResult") {
 			const label =
 				message.toolName === "mcp"
-					? "MCP 响应"
+					? "MCP responses"
 					: skillReadIds.has(message.toolCallId)
-						? "Skill 文件响应"
-						: "其他工具响应";
+						? "Skill file responses"
+						: "Other tool responses";
 			estimates.set(label, (estimates.get(label) ?? 0) + estimateTextTokens(contentText(message.content)));
 		} else if (message.role === "assistant") {
 			for (const part of message.content) {
@@ -151,7 +151,7 @@ export function collectCostReport(
 				.filter((part) => part.type === "text")
 				.map((part) => part.text)
 				.join("\n");
-			estimates.set("模型文本输出", (estimates.get("模型文本输出") ?? 0) + estimateTextTokens(content));
+			estimates.set("Model text output", (estimates.get("Model text output") ?? 0) + estimateTextTokens(content));
 		}
 	}
 	return {

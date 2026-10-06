@@ -30,13 +30,13 @@ const DISK_DESTRUCTION_PATTERNS = [
 /** Non-configurable deny rules. These always run before user policy and permission level. */
 export function evaluateBuiltInDeny(command: string): BuiltInRisk | undefined {
 	if (SYSTEM_ROOT_DELETE_PATTERNS.some((pattern) => pattern.test(command))) {
-		return { decision: "deny", reason: "内置安全规则禁止删除系统盘或整个文件系统" };
+		return { decision: "deny", reason: "Built-in safety rule: deleting the system drive or the entire filesystem is forbidden" };
 	}
 	if (DATABASE_DESTRUCTION_PATTERNS.some((pattern) => pattern.test(command))) {
-		return { decision: "deny", reason: "内置安全规则禁止删除数据库或数据库架构" };
+		return { decision: "deny", reason: "Built-in safety rule: deleting databases or database schemas is forbidden" };
 	}
 	if (DISK_DESTRUCTION_PATTERNS.some((pattern) => pattern.test(command))) {
-		return { decision: "deny", reason: "内置安全规则禁止格式化或覆盖磁盘设备" };
+		return { decision: "deny", reason: "Built-in safety rule: formatting or overwriting disk devices is forbidden" };
 	}
 	return undefined;
 }
@@ -70,14 +70,14 @@ export async function evaluateBulkDeletion(command: string, cwd: string): Promis
 	let count = 0;
 	for (const operand of deletionOperands(command)) {
 		if (operand.includes("*") || operand.includes("?")) {
-			return { decision: "ask", reason: "删除命令包含通配符，无法在执行前确定文件数量" };
+			return { decision: "ask", reason: "Delete command contains wildcards; the file count cannot be determined before execution" };
 		}
 		const target = isAbsolute(operand) ? operand : resolve(cwd, operand);
 		count += await countPathFiles(target, MAX_DELETE_FILES_WITHOUT_APPROVAL - count);
 		if (count > MAX_DELETE_FILES_WITHOUT_APPROVAL) {
 			return {
 				decision: "ask",
-				reason: `预计删除 ${String(count)} 个以上文件，超过 ${String(MAX_DELETE_FILES_WITHOUT_APPROVAL)} 个的风控阈值`,
+				reason: `Expected to delete more than ${String(count)} files, exceeding the risk-control threshold of ${String(MAX_DELETE_FILES_WITHOUT_APPROVAL)}`,
 			};
 		}
 	}

@@ -5,7 +5,7 @@ describe("StudyStatusView", () => {
 	it("renders live AI learning stages and the final knowledge summary", () => {
 		const tracker = new StudyStatusTracker();
 		tracker.start("分析参数化查询");
-		tracker.update("analyzing", "AI 正在分析材料并蒸馏可复用知识（test-model）");
+		tracker.update("analyzing", "AI is analyzing the material and distilling reusable knowledge (test-model)");
 		const requestRender = vi.fn();
 		const view = new StudyStatusView(
 			tracker,
@@ -22,8 +22,8 @@ describe("StudyStatusView", () => {
 		);
 
 		try {
-			expect(view.render(80).join("\n")).toContain("AI 正在学习");
-			expect(view.render(80).join("\n")).toContain("AI 正在分析材料");
+			expect(view.render(80).join("\n")).toContain("AI is studying");
+			expect(view.render(80).join("\n")).toContain("AI is analyzing the material");
 
 			tracker.complete({
 				title: "参数化查询",
@@ -32,7 +32,7 @@ describe("StudyStatusView", () => {
 			});
 			const completed = view.render(80).join("\n");
 			expect(requestRender).toHaveBeenCalled();
-			expect(completed).toContain("学习完成");
+			expect(completed).toContain("Study complete");
 			expect(completed).toContain("参数化查询");
 			expect(completed).toContain("parameterized-query.md");
 		} finally {

@@ -61,8 +61,8 @@ describe("cost report", () => {
 		}];
 		const report = collectCostReport(entries, entries, { provider: "test", id: "new" }, "system prompt");
 		expect(report.models[0]?.calls).toBe(0);
-		expect(report.sources.find((source) => source.label === "MCP 响应")?.tokens).toBeGreaterThan(0);
-		expect(report.sources.find((source) => source.label === "系统提示词（其余）")?.tokens).toBeGreaterThan(0);
+		expect(report.sources.find((source) => source.label === "MCP responses")?.tokens).toBeGreaterThan(0);
+		expect(report.sources.find((source) => source.label === "System prompt (rest)")?.tokens).toBeGreaterThan(0);
 		expect(report.total.totalTokens).toBe(0);
 	});
 
@@ -75,8 +75,8 @@ describe("cost report", () => {
 			message: { role: "toolResult", toolCallId: "read-skill", toolName: "read", content: [{ type: "text", text: "Skill instructions" }], isError: false, timestamp: 0 },
 		};
 		const report = collectCostReport([request, result], [request, result]);
-		expect(report.sources.find((source) => source.label === "Skill 文件响应")?.tokens).toBeGreaterThan(0);
-		expect(report.sources.find((source) => source.label === "其他工具响应")?.tokens).toBe(0);
+		expect(report.sources.find((source) => source.label === "Skill file responses")?.tokens).toBeGreaterThan(0);
+		expect(report.sources.find((source) => source.label === "Other tool responses")?.tokens).toBe(0);
 	});
 
 	it("renders within terminal width and escapes model names in HTML", () => {

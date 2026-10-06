@@ -79,7 +79,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 	setBridgeStatusProvider(() => ({ model: toModelInfo(sessionCtx?.model), sessionId: currentSessionName }));
 	setBridgeChatHandler((text) => {
 		try {
-			const content = `[Chrome 侧边栏] ${text}`;
+			const content = `[Chrome sidebar] ${text}`;
 			const busy = sessionCtx ? !sessionCtx.isIdle() : false;
 			if (busy) {
 				omega.sendUserMessage(content, { deliverAs: "followUp" });
@@ -90,7 +90,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 		} catch (error) {
 			pushBridgeEvent({
 				type: "chat_reply",
-				text: `⚠️ 消息投递失败：${error instanceof Error ? error.message : String(error)}`,
+				text: `⚠️ Message delivery failed: ${error instanceof Error ? error.message : String(error)}`,
 			});
 		}
 	});
@@ -102,14 +102,14 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 		omega.sendMessage(
 			{
 				customType: "browser-bridge-broadcast",
-				content: [{ type: "text", text: `[浏览器广播] ${text}` }],
+				content: [{ type: "text", text: `[Browser broadcast] ${text}` }],
 				display: true,
 			},
 			{ triggerTurn: true, deliverAs: busy ? "followUp" : undefined },
 		);
 		pushBridgeEvent({
 			type: "chat_reply",
-			text: `广播已送达运行中的智能体${busy ? "（已排队，当前任务完成后生效）" : ""}：${text}`,
+			text: `Broadcast delivered to the running agent${busy ? " (queued; takes effect after the current task finishes)" : ""}: ${text}`,
 			broadcast: true,
 		});
 	});
@@ -150,7 +150,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 		if (message.stopReason === "error") {
 			pushBridgeEvent({
 				type: "chat_reply",
-				text: `⚠️ 智能体执行出错：${message.errorMessage ?? "未知错误（详情见终端）"}`,
+				text: `⚠️ Agent execution error: ${message.errorMessage ?? "unknown error (see terminal for details)"}`,
 			});
 			return;
 		}
@@ -198,7 +198,7 @@ async function handleBridgeSessionSwitch(action: { op: "new" | "switch"; name: s
 	if (!commandCtx) {
 		pushBridgeEvent({
 			type: "chat_reply",
-			text: "会话切换不可用：请先在 Omega 终端运行一次 /browser-bridge 命令，然后重试。",
+			text: "Session switching unavailable: run the /browser-bridge command once in the Omega terminal first, then retry.",
 		});
 		return;
 	}
@@ -207,7 +207,7 @@ async function handleBridgeSessionSwitch(action: { op: "new" | "switch"; name: s
 		await loadSessionRegistry();
 		const existing = sessionRegistry[action.name];
 		if (action.op === "switch" && !existing) {
-			pushBridgeEvent({ type: "chat_reply", text: `会话「${action.name}」不存在。` });
+			pushBridgeEvent({ type: "chat_reply", text: `Session "${action.name}" does not exist.` });
 			return;
 		}
 		if (existing) {
@@ -230,11 +230,11 @@ async function handleBridgeSessionSwitch(action: { op: "new" | "switch"; name: s
 		sessionCtx = commandCtx;
 		currentModel = toModelInfo(commandCtx.model);
 		pushBridgeEvent(sessionInfoEvent());
-		pushBridgeEvent({ type: "chat_reply", text: `已切换到会话「${action.name}」。` });
+		pushBridgeEvent({ type: "chat_reply", text: `Switched to session "${action.name}".` });
 	} catch (error) {
 		pushBridgeEvent({
 			type: "chat_reply",
-			text: `会话切换失败：${error instanceof Error ? error.message : String(error)}`,
+			text: `Session switch failed: ${error instanceof Error ? error.message : String(error)}`,
 		});
 	}
 }
@@ -275,7 +275,7 @@ async function handleBrowserBridgeCommand(args: string, ctx: ExtensionCommandCon
 			return;
 		}
 		default:
-			throw new Error(`Unknown /browser-bridge command: ${trimmed} (use status, start, stop, or name <名称>)`);
+			throw new Error(`Unknown /browser-bridge command: ${trimmed} (use status, start, stop, or name <name>)`);
 	}
 }
 
@@ -288,7 +288,7 @@ async function handleBrowserBridgeName(name: string, ctx: ExtensionCommandContex
 		ctx.ui.notify(
 			currentSessionName
 				? `Browser plugin session name: ${currentSessionName}`
-				: "Browser plugin session is unnamed. Use /browser-bridge name <名称> to name it.",
+				: "Browser plugin session is unnamed. Use /browser-bridge name <name> to name it.",
 			currentSessionName ? "info" : "warning",
 		);
 		return;
@@ -301,5 +301,5 @@ async function handleBrowserBridgeName(name: string, ctx: ExtensionCommandContex
 		await saveSessionRegistry();
 	}
 	pushBridgeEvent(sessionInfoEvent());
-	ctx.ui.notify(`Browser plugin session named「${name}」.`, "info");
+	ctx.ui.notify(`Browser plugin session named "${name}".`, "info");
 }

@@ -11,10 +11,10 @@ export function registerCommands(omega: OmegaAPI): void {
 	registerCopyCommand(omega);
 
 	registerOmegaCommand(omega, "report", {
-		description: "将当前会话整理为 Markdown 渗透测试报告",
+		description: "Compile the current session into a Markdown penetration test report",
 		handler: async (args, ctx) => {
 			try {
-				const target = args.trim() || "未指定目标";
+				const target = args.trim() || "unspecified target";
 				const entries = ctx.sessionManager.getBranch();
 				const report = generateReport(entries, target);
 
@@ -23,7 +23,7 @@ export function registerCommands(omega: OmegaAPI): void {
 
 				await writeFile(outputPath, report, "utf-8");
 
-				ctx.ui.notify(`报告已生成：${filename}`, "info");
+				ctx.ui.notify(`Report generated: ${filename}`, "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}

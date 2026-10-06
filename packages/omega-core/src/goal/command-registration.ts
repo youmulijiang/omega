@@ -24,6 +24,7 @@ export function registerGoalCommand(
 
 	pi.registerCommand("goal", {
 		description: "Run a goal to completion: /goal [--tokens 100k] <goal_to_complete>",
+		showSourceTag: false,
 		getArgumentCompletions: (prefix) => completeGoalArguments(prefix),
 		handler: async (args, ctx) => {
 			if (runtime.hasLegacyQueueInterface() && isRemovedQueueCommand(args)) {

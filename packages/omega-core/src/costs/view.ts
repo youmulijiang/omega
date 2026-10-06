@@ -19,11 +19,11 @@ export function renderCostDashboard(report: CostReport, width: number): string[]
 	const innerWidth = safeWidth - 4;
 	const barWidth = Math.max(0, Math.min(24, innerWidth - 33));
 	const lines: string[] = [
-		"OMEGA / COST · 当前会话累计",
-		`当前模型: ${report.currentModel ?? "未选择"}`,
-		`总计: ${report.total.totalTokens.toLocaleString()} tokens · $${report.total.cost.toFixed(4)} · ${report.total.calls} 次计费记录`,
+		"OMEGA / COST · Current session totals",
+		`Current model: ${report.currentModel ?? "none selected"}`,
+		`Total: ${report.total.totalTokens.toLocaleString()} tokens · $${report.total.cost.toFixed(4)} · ${report.total.calls} billed entries`,
 		"",
-		"模型消费 · 供应商 usage / USD",
+		"Model usage · provider usage / USD",
 	];
 	const maxModel = Math.max(0, ...report.models.map((model) => model.totalTokens));
 	for (const model of report.models) {
@@ -31,32 +31,32 @@ export function renderCostDashboard(report: CostReport, width: number): string[]
 			`${model.model === report.currentModel ? "›" : " "} ${truncateToWidth(model.model, 22, "…").padEnd(22)} ${costBar(model.totalTokens, maxModel, barWidth)} ${model.totalTokens.toLocaleString()} · $${model.cost.toFixed(4)}`,
 		);
 	}
-	if (report.models.length === 0) lines.push("尚无模型调用记录");
+	if (report.models.length === 0) lines.push("No model calls recorded yet");
 	if (report.unattributed.calls > 0)
 		lines.push(
-			`其他计费（工具/摘要，模型未归因）: ${report.unattributed.totalTokens.toLocaleString()} · $${report.unattributed.cost.toFixed(4)}`,
+			`Other billing (tools/summaries, unattributed to a model): ${report.unattributed.totalTokens.toLocaleString()} · $${report.unattributed.cost.toFixed(4)}`,
 		);
 	const current = report.models.find((model) => model.model === report.currentModel);
 	if (current) {
-		lines.push("", "当前模型精确用量 · 输入 / 输出 / 缓存读 / 缓存写");
+		lines.push("", "Current model exact usage · input / output / cache read / cache write");
 		const dimensions = [
-			["输入", current.input],
-			["输出", current.output],
-			["缓存读", current.cacheRead],
-			["缓存写", current.cacheWrite],
+			["Input", current.input],
+			["Output", current.output],
+			["Cache read", current.cacheRead],
+			["Cache write", current.cacheWrite],
 		] as const;
 		const maxDimension = Math.max(0, ...dimensions.map(([, value]) => value));
 		for (const [label, value] of dimensions)
 			lines.push(`${label.padEnd(6)} ${costBar(value, maxDimension, barWidth)} ${value.toLocaleString()}`);
 	}
-	lines.push("", "内容来源 · 当前分支文本粗估（UTF-8 字节 / 4；非计费归因）");
+	lines.push("", "Content sources · rough estimate of current branch text (UTF-8 bytes / 4; non-billed attribution)");
 	const maxSource = Math.max(0, ...report.sources.map((source) => source.tokens));
 	for (const source of report.sources) {
 		lines.push(
 			`${source.label.padEnd(12)} ${costBar(source.tokens, maxSource, barWidth)} ~${source.tokens.toLocaleString()}`,
 		);
 	}
-	lines.push("", "提示：/cost models 查看明细；/cost export 导出 HTML；Esc 关闭");
+	lines.push("", "Tip: /cost models for details; /cost export for HTML; Esc to close");
 	const top = `╭${"─".repeat(safeWidth - 2)}╮`;
 	const bottom = `╰${"─".repeat(safeWidth - 2)}╯`;
 	return [top, ...lines.map((line) => frameLine(line, safeWidth)), bottom].map((line) =>

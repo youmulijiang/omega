@@ -79,6 +79,6 @@ describe("Omega init command", () => {
 
 		expect(readFileSync(join(workspace, ".omega", "agent", "scope.md"), "utf8")).toContain("# scope.md");
 		expect(existsSync(join(workspace, ".omega", "workflows"))).toBe(true);
-		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Omega 工作目录已初始化"), "info");
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Omega workspace initialized"), "info");
 	});
 });

@@ -204,7 +204,7 @@ export function registerFork(omega: OmegaAPI): void {
 	});
 
 	registerOmegaCommand(omega, "fork:task", {
-		description: "在独立的 Omega 子进程中执行聚焦任务",
+		description: "Run a focused task in a separate Omega subprocess",
 		handler: async (args, ctx) => {
 			const task = await resolveCommandTask(args, ctx);
 			if (!task) return;

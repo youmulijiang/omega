@@ -106,7 +106,7 @@ describe("scope permissions", () => {
 		expect(unknownFirst).toBeUndefined();
 		expect(unknownAgain).toBeUndefined();
 		expect(confirm).toHaveBeenCalledTimes(1);
-		expect(confirm).toHaveBeenCalledWith("OMEGA Scope 范围外目标确认", expect.stringContaining("outside.test"));
+		expect(confirm).toHaveBeenCalledWith("OMEGA out-of-scope target confirmation", expect.stringContaining("outside.test"));
 		expect(excluded).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("Exclusions") }));
 	});
 
@@ -135,7 +135,7 @@ describe("scope permissions", () => {
 			ctx as never,
 		);
 
-		expect(result).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("用户拒绝") }));
+		expect(result).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("User declined") }));
 	});
 
 	it("asks before destructive deletion and only remembers an exact command for the session", async () => {
@@ -149,7 +149,7 @@ describe("scope permissions", () => {
 			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
 			registerCommand: vi.fn(),
 		} as unknown as ExtensionAPI;
-		const select = vi.fn().mockResolvedValueOnce("允许本会话中的相同命令").mockResolvedValueOnce("拒绝执行");
+		const select = vi.fn().mockResolvedValueOnce("Allow the same command for this session").mockResolvedValueOnce("Deny execution");
 		const ctx = {
 			cwd,
 			hasUI: true,
@@ -173,12 +173,12 @@ describe("scope permissions", () => {
 
 		expect(first).toBeUndefined();
 		expect(repeated).toBeUndefined();
-		expect(different).toEqual({ block: true, reason: "用户取消执行" });
+		expect(different).toEqual({ block: true, reason: "User cancelled execution" });
 		expect(select).toHaveBeenCalledTimes(2);
 		expect(select).toHaveBeenNthCalledWith(
 			1,
-			expect.stringContaining("删除命令包含通配符"),
-			["仅允许本次执行", "允许本会话中的相同命令", "拒绝执行"],
+			expect.stringContaining("Delete command contains wildcards"),
+			["Allow this execution only", "Allow the same command for this session", "Deny execution"],
 		);
 	});
 
@@ -197,7 +197,7 @@ describe("scope permissions", () => {
 			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
 			registerCommand: vi.fn(),
 		} as unknown as ExtensionAPI;
-		const select = vi.fn().mockResolvedValue("仅允许本次执行");
+		const select = vi.fn().mockResolvedValue("Allow this execution only");
 		const ctx = {
 			cwd,
 			hasUI: true,
@@ -220,7 +220,7 @@ describe("scope permissions", () => {
 		);
 
 		expect(allowed).toBeUndefined();
-		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("权限策略拒绝") }));
+		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("Permission policy denied") }));
 		expect(asked).toBeUndefined();
 		expect(select).toHaveBeenCalledOnce();
 	});
@@ -258,7 +258,7 @@ describe("scope permissions", () => {
 			ctx as never,
 		);
 
-		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("权限策略拒绝") }));
+		expect(denied).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("Permission policy denied") }));
 		expect(asked).toBeUndefined();
 		expect(select).not.toHaveBeenCalled();
 	});
@@ -288,8 +288,8 @@ describe("scope permissions", () => {
 			ctx as never,
 		);
 
-		expect(filesystem).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("整个文件系统") }));
-		expect(database).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("数据库") }));
+		expect(filesystem).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("entire filesystem") }));
+		expect(database).toEqual(expect.objectContaining({ block: true, reason: expect.stringContaining("database") }));
 	});
 
 	it("switches permission levels with /permissions", async () => {
@@ -301,7 +301,7 @@ describe("scope permissions", () => {
 			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
 			registerCommand: (name: string, command: { handler: CommandHandler }) => commands.set(name, command.handler),
 		} as unknown as ExtensionAPI;
-		const select = vi.fn().mockResolvedValue("仅允许本次执行");
+		const select = vi.fn().mockResolvedValue("Allow this execution only");
 		const notify = vi.fn();
 		const ctx = {
 			cwd,
@@ -323,7 +323,7 @@ describe("scope permissions", () => {
 		);
 
 		expect(select).toHaveBeenCalledOnce();
-		expect(notify).toHaveBeenCalledWith("权限等级已切换为：approve for me", "info");
+		expect(notify).toHaveBeenCalledWith("Permission level changed to: approve for me", "info");
 	});
 
 	it("selects a permission level when /permissions has no arguments", async () => {
@@ -351,7 +351,7 @@ describe("scope permissions", () => {
 		const allCompletions = await commands.get("permissions")?.getArgumentCompletions?.("");
 		const approveCompletions = await commands.get("permissions")?.getArgumentCompletions?.("app");
 
-		expect(select).toHaveBeenCalledWith("选择权限等级（当前：full access）", [
+		expect(select).toHaveBeenCalledWith("Select permission level (current: full access)", [
 			"ask for approval",
 			"approve for me",
 			"full access",
@@ -363,7 +363,7 @@ describe("scope permissions", () => {
 		]);
 		expect(approveCompletions).toEqual([{ value: "approve for me", label: "approve for me" }]);
 		expect(setStatus).toHaveBeenLastCalledWith("omega-permissions", "Permissions: ask for approval");
-		expect(notify).toHaveBeenCalledWith("权限等级已切换为：ask for approval", "info");
+		expect(notify).toHaveBeenCalledWith("Permission level changed to: ask for approval", "info");
 	});
 
 	it("forces approval when deleting more than twenty files", async () => {
@@ -377,7 +377,7 @@ describe("scope permissions", () => {
 			on: (event: string, handler: EventHandler) => handlers.set(event, handler),
 			registerCommand: vi.fn(),
 		} as unknown as ExtensionAPI;
-		const select = vi.fn().mockResolvedValue("拒绝执行");
+		const select = vi.fn().mockResolvedValue("Deny execution");
 		const ctx = {
 			cwd,
 			hasUI: true,
@@ -391,7 +391,7 @@ describe("scope permissions", () => {
 			ctx as never,
 		);
 
-		expect(result).toEqual({ block: true, reason: "用户取消执行" });
-		expect(select).toHaveBeenCalledWith(expect.stringContaining("超过 20 个"), expect.any(Array));
+		expect(result).toEqual({ block: true, reason: "User cancelled execution" });
+		expect(select).toHaveBeenCalledWith(expect.stringContaining("risk-control threshold of 20"), expect.any(Array));
 	});
 });

@@ -61,10 +61,10 @@ describe("/study", () => {
 		} as never);
 
 		await vi.waitFor(() =>
-			expect(confirm).toHaveBeenCalledWith("上下文不足", expect.stringContaining("是否仍然进行学习")),
+			expect(confirm).toHaveBeenCalledWith("Insufficient context", expect.stringContaining("Proceed with the study")),
 		);
 		expect(save).not.toHaveBeenCalled();
-		expect(notify).toHaveBeenCalledWith("已取消学习", "info");
+		expect(notify).toHaveBeenCalledWith("Study cancelled", "info");
 	});
 
 	it("treats the command prompt as primary study material and saves the distilled result", async () => {
@@ -113,7 +113,7 @@ describe("/study", () => {
 			summary: "使用参数绑定隔离查询结构与数据。",
 			content: "## 方法\n\n使用参数化查询，并验证所有查询分支。",
 		});
-		expect(notify).toHaveBeenCalledWith("知识已保存：~/.omega/knowledge/saved.md", "info");
+		expect(notify).toHaveBeenCalledWith("Knowledge saved: ~/.omega/knowledge/saved.md", "info");
 		expect(sendMessage).toHaveBeenCalledWith(
 			expect.objectContaining({
 				customType: "omega-study-result",
@@ -229,6 +229,6 @@ describe("/study", () => {
 		await commands.get("study:list")?.("SQL 注入", ctx);
 		expect(notify).toHaveBeenLastCalledWith("# SQL 注入\n\n正文", "info");
 		await commands.get("study:list")?.("不存在", ctx);
-		expect(notify).toHaveBeenLastCalledWith("未找到知识库索引项：不存在", "warning");
+		expect(notify).toHaveBeenLastCalledWith("Knowledge base index entry not found: 不存在", "warning");
 	});
 });

@@ -8,9 +8,9 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 export type OmegaPhase = "recon" | "exploit" | "report";
 
 const PHASE_LABELS: Record<OmegaPhase, string> = {
-	recon: "侦察 (Recon)",
-	exploit: "利用 (Exploit)",
-	report: "报告 (Report)",
+	recon: "Recon",
+	exploit: "Exploit",
+	report: "Report",
 };
 
 /**

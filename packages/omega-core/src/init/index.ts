@@ -76,12 +76,12 @@ export async function initializeOmegaWorkspace(cwd: string): Promise<InitWorkspa
 
 export function formatInitResult(result: InitWorkspaceResult): string {
 	const lines = [
-		`Omega 工作目录已初始化：${result.root}`,
-		`目录：\n${result.directories.map((path) => `- ${path}`).join("\n")}`,
+		`Omega workspace initialized: ${result.root}`,
+		`Directories:\n${result.directories.map((path) => `- ${path}`).join("\n")}`,
 	];
-	if (result.created.length > 0) lines.push(`已创建：\n${result.created.map((path) => `- ${path}`).join("\n")}`);
+	if (result.created.length > 0) lines.push(`Created:\n${result.created.map((path) => `- ${path}`).join("\n")}`);
 	if (result.existing.length > 0) {
-		lines.push(`已存在，未覆盖：\n${result.existing.map((path) => `- ${path}`).join("\n")}`);
+		lines.push(`Already exist, not overwritten:\n${result.existing.map((path) => `- ${path}`).join("\n")}`);
 	}
 	return lines.join("\n\n");
 }
@@ -89,12 +89,12 @@ export function formatInitResult(result: InitWorkspaceResult): string {
 /** Register the interactive `/init` command. */
 export function registerInit(omega: OmegaAPI): void {
 	registerOmegaCommand(omega, "init", {
-		description: "初始化当前工作目录的 .omega 配置和 workflows 目录",
+		description: "Initialize the .omega config and workflows directories in the current working directory",
 		handler: async (_args, ctx) => {
 			try {
 				ctx.ui.notify(formatInitResult(await initializeOmegaWorkspace(ctx.cwd)), "info");
 			} catch (error) {
-				ctx.ui.notify(`初始化失败：${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(`Initialization failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});

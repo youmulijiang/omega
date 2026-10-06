@@ -8,11 +8,11 @@ import { CostDashboard } from "./view.ts";
 
 export function registerCosts(omega: OmegaAPI): void {
 	registerOmegaCommand(omega, "cost", {
-		description: "查看当前会话 Token/费用图表，/cost models 查看模型明细，/cost export [文件.html] 导出报表",
+		description: "View token/cost charts for the current session; /cost models for per-model details; /cost export [file.html] to export a report",
 		handler: async (args, ctx) => {
 			const [action, ...rest] = args.trim().split(/\s+/u).filter(Boolean);
 			if (action && action !== "models" && action !== "export") {
-				ctx.ui.notify("用法：/cost [models | export [文件.html]]", "warning");
+				ctx.ui.notify("Usage: /cost [models | export [file.html]]", "warning");
 				return;
 			}
 			try {
@@ -26,30 +26,30 @@ export function registerCosts(omega: OmegaAPI): void {
 				if (action === "export") {
 					const requested = rest.join(" ").trim();
 					if (requested && !requested.toLowerCase().endsWith(".html")) {
-						ctx.ui.notify("导出文件必须以 .html 结尾。", "warning");
+						ctx.ui.notify("The export file must end with .html.", "warning");
 						return;
 					}
 					const filename = requested || `omega-cost-${Date.now()}.html`;
 					const output = isAbsolute(filename) ? filename : resolve(ctx.cwd, filename);
 					await writeFile(output, renderCostHtml(report), { encoding: "utf8", flag: "wx" });
-					ctx.ui.notify(`消费报表已导出：${output}`, "info");
+					ctx.ui.notify(`Cost report exported: ${output}`, "info");
 					return;
 				}
 				if (action === "models" || ctx.mode !== "tui" || !ctx.hasUI) {
 					const current = report.models.find((model) => model.model === report.currentModel);
-					const header = `当前会话 $${report.total.cost.toFixed(4)} · ${report.total.totalTokens.toLocaleString()} tokens`;
+					const header = `Current session $${report.total.cost.toFixed(4)} · ${report.total.totalTokens.toLocaleString()} tokens`;
 					const rows = report.models.map(
 						(model) =>
-							`${model.model}: ${model.totalTokens.toLocaleString()} tokens · $${model.cost.toFixed(4)} (${model.calls} 次)`,
+							`${model.model}: ${model.totalTokens.toLocaleString()} tokens · $${model.cost.toFixed(4)} (${model.calls} calls)`,
 					);
 					const breakdown = current
-						? `当前模型：输入 ${current.input} / 输出 ${current.output} / 缓存读 ${current.cacheRead} / 缓存写 ${current.cacheWrite}`
-						: "当前模型尚无消费";
+						? `Current model - input ${current.input} / output ${current.output} / cache read ${current.cacheRead} / cache write ${current.cacheWrite}`
+						: "No usage recorded for the current model yet";
 					const unknown = report.unattributed.calls
-						? `未归因：${report.unattributed.totalTokens} tokens · $${report.unattributed.cost.toFixed(4)}`
+						? `Unattributed: ${report.unattributed.totalTokens} tokens · $${report.unattributed.cost.toFixed(4)}`
 						: "";
 					ctx.ui.notify(
-						[header, breakdown, ...rows, unknown, "来源估算请使用 /cost 图表或 /cost export 查看（非计费归因）"]
+						[header, breakdown, ...rows, unknown, "For source estimates use the /cost chart or /cost export (non-billed attribution)"]
 							.filter(Boolean)
 							.join("\n"),
 						"info",

@@ -31,7 +31,7 @@ export function registerPermissions(omega: OmegaAPI): void {
 			permissionPolicy = loadedPolicy.policy;
 			permissionLevel = loadedPolicy.policy.level;
 			for (const warning of loadedPolicy.warnings) {
-				if (ctx.hasUI) ctx.ui.notify(`权限配置无效，已忽略：${warning}`, "warning");
+				if (ctx.hasUI) ctx.ui.notify(`Invalid permission config, ignored: ${warning}`, "warning");
 			}
 			if (scope.exists && ctx.hasUI) {
 				ctx.ui.setStatus(
@@ -43,12 +43,12 @@ export function registerPermissions(omega: OmegaAPI): void {
 		} catch (error) {
 			scope = undefined;
 			if (ctx.hasUI)
-				ctx.ui.notify(`读取 Scope 失败：${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(`Failed to read Scope: ${error instanceof Error ? error.message : String(error)}`, "error");
 		}
 	});
 
 	registerOmegaCommand(omega, "permissions", {
-		description: "查看或设置权限等级：ask for approval | approve for me | full access",
+		description: "View or set the permission level: ask for approval | approve for me | full access",
 		getArgumentCompletions: (prefix) => {
 			const normalizedPrefix = prefix.trimStart().toLowerCase();
 			const matches = PERMISSION_LEVELS.filter((level) => level.startsWith(normalizedPrefix));
@@ -57,18 +57,18 @@ export function registerPermissions(omega: OmegaAPI): void {
 		handler: async (args, ctx) => {
 			let requested = args.trim().toLowerCase();
 			if (!requested) {
-				const selected = await ctx.ui.select(`选择权限等级（当前：${permissionLevel}）`, [...PERMISSION_LEVELS]);
+				const selected = await ctx.ui.select(`Select permission level (current: ${permissionLevel})`, [...PERMISSION_LEVELS]);
 				if (!selected) return;
 				requested = selected;
 			}
 			if (requested !== "ask for approval" && requested !== "approve for me" && requested !== "full access") {
-				ctx.ui.notify("无效权限等级。可用值：ask for approval、approve for me、full access", "error");
+				ctx.ui.notify("Invalid permission level. Available values: ask for approval, approve for me, full access", "error");
 				return;
 			}
 			permissionLevel = requested;
 			approvedRequests.clear();
 			ctx.ui.setStatus("omega-permissions", `Permissions: ${permissionLevel}`);
-			ctx.ui.notify(`权限等级已切换为：${permissionLevel}`, "info");
+			ctx.ui.notify(`Permission level changed to: ${permissionLevel}`, "info");
 		},
 	});
 
@@ -92,23 +92,23 @@ export function registerPermissions(omega: OmegaAPI): void {
 		if (scope?.exists) {
 			for (const target of extractTargetsFromInput(event.input)) {
 				if (scopeContainsTarget(scope.exclusions, target)) {
-					return { block: true, reason: `目标 ${target} 位于 Scope Exclusions 中` };
+					return { block: true, reason: `Target ${target} is in Scope Exclusions` };
 				}
 				if (scopeContainsTarget(scope.inclusions, target) || approvedTargets.has(target)) continue;
 				if (deniedTargets.has(target)) {
-					return { block: true, reason: `目标 ${target} 未获得本次会话授权` };
+					return { block: true, reason: `Target ${target} is not authorized for this session` };
 				}
 				if (!ctx.hasUI) {
 					deniedTargets.add(target);
-					return { block: true, reason: `目标 ${target} 不在 Scope Inclusion 中，非交互模式无法确认授权` };
+					return { block: true, reason: `Target ${target} is not in Scope Inclusion and cannot be confirmed in non-interactive mode` };
 				}
 				const approved = await ctx.ui.confirm(
-					"OMEGA Scope 范围外目标确认",
-					`目标不在 Scope Inclusion 中：\n\n${target}\n\n是否确认已获得授权并继续测试？`,
+					"OMEGA out-of-scope target confirmation",
+					`Target is not in Scope Inclusion:\n\n${target}\n\nConfirm it is authorized and continue testing?`,
 				);
 				if (!approved) {
 					deniedTargets.add(target);
-					return { block: true, reason: `用户拒绝测试 Scope 范围外目标 ${target}` };
+					return { block: true, reason: `User declined testing out-of-scope target ${target}` };
 				}
 				approvedTargets.add(target);
 			}
@@ -117,7 +117,7 @@ export function registerPermissions(omega: OmegaAPI): void {
 		const policy = permissionPolicy ?? (await loadPermissionPolicy(ctx.cwd)).policy;
 		const toolRule = evaluateRules(event.toolName, policy.tools, policy.defaultPolicy.tools);
 		let subject = event.toolName;
-		let category = "工具";
+		let category = "Tool";
 		let isBuiltInBulkRisk = false;
 		let resolved: { decision: PermissionDecision; pattern?: string } = toolRule;
 		if (event.toolName === "bash") {
@@ -125,9 +125,9 @@ export function registerPermissions(omega: OmegaAPI): void {
 				typeof event.input === "object" && event.input !== null && "command" in event.input
 					? (event.input as { command?: unknown }).command
 					: undefined;
-			if (typeof command !== "string") return { block: true, reason: "bash 工具缺少有效的 command 参数" };
+			if (typeof command !== "string") return { block: true, reason: "bash tool is missing a valid command argument" };
 			subject = command;
-			category = "Bash 命令";
+			category = "Bash command";
 			const builtInDeny = evaluateBuiltInDeny(command);
 			if (builtInDeny) return { block: true, reason: builtInDeny.reason };
 			const bulkDeletion = await evaluateBulkDeletion(command, ctx.cwd);
@@ -144,7 +144,7 @@ export function registerPermissions(omega: OmegaAPI): void {
 			const tool = typeof input.tool === "string" ? input.tool : undefined;
 			const action = typeof input.action === "string" ? input.action : "call";
 			subject = server ? `${server}${tool ? `:${tool}` : ""}` : `mcp_${action}`;
-			category = "MCP 操作";
+			category = "MCP operation";
 			resolved = evaluateRules(subject, policy.mcp, toolRule.decision);
 		}
 
@@ -152,7 +152,7 @@ export function registerPermissions(omega: OmegaAPI): void {
 		// suppresses approval prompts, it must not turn a denied operation into an
 		// allowed one (that is what the level-independent built-in rules are for).
 		if (resolved.decision === "deny") {
-			return { block: true, reason: `权限策略拒绝${category}：${subject}` };
+			return { block: true, reason: `Permission policy denied ${category}: ${subject}` };
 		}
 		if (!isBuiltInBulkRisk && permissionLevel === "full access") return undefined;
 		if (!isBuiltInBulkRisk && permissionLevel === "approve for me") return undefined;
@@ -163,19 +163,19 @@ export function registerPermissions(omega: OmegaAPI): void {
 		if (!ctx.hasUI) {
 			return {
 				block: true,
-				reason: `${category}需要用户确认，非交互模式下已阻止`,
+				reason: `${category} requires user confirmation and was blocked in non-interactive mode`,
 			};
 		}
 
-		const allowOnce = "仅允许本次执行";
-		const allowSession = "允许本会话中的相同命令";
+		const allowOnce = "Allow this execution only";
+		const allowSession = "Allow the same command for this session";
 		const choice = await ctx.ui.select(
-			`OMEGA 权限确认\n\n类型：${category}\n规则：${resolved.pattern ?? "默认策略"} → ask\n\n内容：\n${subject}\n\n是否继续执行？`,
-			[allowOnce, allowSession, "拒绝执行"],
+			`OMEGA permission confirmation\n\nType: ${category}\nRule: ${resolved.pattern ?? "default policy"} → ask\n\nContent:\n${subject}\n\nProceed?`,
+			[allowOnce, allowSession, "Deny execution"],
 		);
 
 		if (choice !== allowOnce && choice !== allowSession) {
-			return { block: true, reason: "用户取消执行" };
+			return { block: true, reason: "User cancelled execution" };
 		}
 		if (choice === allowSession) approvedRequests.add(approvalKey);
 

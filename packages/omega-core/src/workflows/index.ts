@@ -34,27 +34,27 @@ const WorkflowParams = Type.Object({
 });
 
 const COMMAND_HELP = [
-	"/workflows run <prompt>                 根据提示词生成并运行工作流",
-	"/workflows run-template <name|id> [JSON args]  运行指定工作流模板",
-	"/workflows list                         列出工作流模板",
-	"/workflows status                       显示活动和最近一次运行状态",
-	"/workflows validate <name|file.js>      解析并校验模板，不执行",
-	"/workflows show <name|id>               展示模板内容，不执行",
-	"/workflows reload                       重新发现工作流模板",
+	"/workflows run <prompt>                 Generate and run a workflow from a prompt",
+	"/workflows run-template <name|id> [JSON args]  Run the given workflow template",
+	"/workflows list                         List workflow templates",
+	"/workflows status                       Show active and most recent run status",
+	"/workflows validate <name|file.js>      Parse and validate a template without running it",
+	"/workflows show <name|id>               Show a template without running it",
+	"/workflows reload                       Rediscover workflow templates",
 ].join("\n");
 
 const COMMAND_CHOICES = [
-	{ action: "run", label: "run — 根据提示生成并运行", description: "动态生成、校验并执行工作流" },
+	{ action: "run", label: "run — generate and run from a prompt", description: "Generate, validate, and execute a workflow dynamically" },
 	{
 		action: "run-template",
-		label: "run-template — 运行工作流模板",
-		description: "运行已注册工作流，可继续选择模板",
+		label: "run-template — run a workflow template",
+		description: "Run a registered workflow; can continue to template selection",
 	},
-	{ action: "list", label: "list — 列出工作流模板", description: "列出名称、来源和描述" },
-	{ action: "status", label: "status — 查看运行状态", description: "查看活动运行和最近一次结果" },
-	{ action: "validate", label: "validate — 校验工作流模板", description: "解析和校验，不执行" },
-	{ action: "show", label: "show — 查看工作流模板", description: "展示模板源码，不执行" },
-	{ action: "reload", label: "reload — 重新发现模板", description: "刷新用户和项目工作流缓存" },
+	{ action: "list", label: "list — list workflow templates", description: "List names, sources, and descriptions" },
+	{ action: "status", label: "status — view run status", description: "View active runs and the latest result" },
+	{ action: "validate", label: "validate — validate a workflow template", description: "Parse and validate without running" },
+	{ action: "show", label: "show — view a workflow template", description: "Show template source without running" },
+	{ action: "reload", label: "reload — rediscover templates", description: "Refresh the user and project workflow caches" },
 ] as const;
 
 interface WorkflowArgumentCompletion {
@@ -119,7 +119,7 @@ function formatWorkflowChoice(definition: WorkflowDefinition): string {
 
 function formatRegistry(registry: WorkflowRegistry): string {
 	const definitions = [...registry.definitions.values()].sort((left, right) => left.name.localeCompare(right.name));
-	return definitions.length > 0 ? definitions.map(formatWorkflowChoice).join("\n") : "未发现 workflow 模板。";
+	return definitions.length > 0 ? definitions.map(formatWorkflowChoice).join("\n") : "No workflow templates found.";
 }
 
 function formatRunStatus(status: WorkflowExecutionStatus): string {
@@ -128,11 +128,11 @@ function formatRunStatus(status: WorkflowExecutionStatus): string {
 	return [
 		`${status.name} [${status.state}]`,
 		`ID: ${identifier}`,
-		`阶段: ${status.phase ?? "未设置"}`,
-		`节点: ${status.completedNodes} 已完成 / ${status.runningNodes} 运行中`,
+		`Phase: ${status.phase ?? "not set"}`,
+		`Nodes: ${status.completedNodes} completed / ${status.runningNodes} running`,
 		`Agent: ${status.agentCount ?? "-"} · Task: ${status.taskCount ?? "-"}`,
-		`耗时: ${elapsed}ms`,
-		...(status.error ? [`错误: ${status.error}`] : []),
+		`Elapsed: ${elapsed}ms`,
+		...(status.error ? [`Error: ${status.error}`] : []),
 	].join("\n");
 }
 
@@ -165,7 +165,7 @@ async function showWorkflowStatusPanel(ctx: ExtensionCommandContext, service: Wo
 	if (!ctx.hasUI) {
 		const snapshot = service.getStatus();
 		const runs = [...snapshot.active, ...(snapshot.last ? [snapshot.last] : [])];
-		ctx.ui.notify(runs.map(formatRunStatus).join("\n\n") || "当前没有 workflow 运行记录。", "info");
+		ctx.ui.notify(runs.map(formatRunStatus).join("\n\n") || "No workflow run records.", "info");
 		return;
 	}
 	await ctx.ui.custom<void>(
@@ -235,15 +235,15 @@ async function handleWorkflowsCommand(
 		case "reload": {
 			if (rest) throw new Error("Usage: /workflows reload");
 			const registry = service.reload(ctx.cwd, includeProjectWorkflows);
-			ctx.ui.notify(`Workflows 已重新加载。\n${formatRegistry(registry)}`, "info");
+			ctx.ui.notify(`Workflows reloaded.\n${formatRegistry(registry)}`, "info");
 			return;
 		}
 		case "status": {
 			if (rest) throw new Error("Usage: /workflows status");
 			const status = service.getStatus();
-			const sections = status.active.map((run) => `活动运行\n${formatRunStatus(run)}`);
-			if (status.last) sections.push(`最近运行\n${formatRunStatus(status.last)}`);
-			ctx.ui.notify(sections.join("\n\n") || "当前没有 workflow 运行记录。", "info");
+			const sections = status.active.map((run) => `Active run\n${formatRunStatus(run)}`);
+			if (status.last) sections.push(`Latest run\n${formatRunStatus(status.last)}`);
+			ctx.ui.notify(sections.join("\n\n") || "No workflow run records.", "info");
 			return;
 		}
 		case "show": {
@@ -269,10 +269,10 @@ async function handleWorkflowsCommand(
 			const { meta } = parseWorkflowScript(selected.script);
 			ctx.ui.notify(
 				[
-					`Workflow 模板校验通过: ${meta.name}`,
-					`来源: ${selected.source}`,
-					`描述: ${meta.description}`,
-					`阶段: ${meta.phases?.map((phase) => phase.title).join(" -> ") || "未声明"}`,
+					`Workflow template validated: ${meta.name}`,
+					`Source: ${selected.source}`,
+					`Description: ${meta.description}`,
+					`Phases: ${meta.phases?.map((phase) => phase.title).join(" -> ") || "not declared"}`,
 				].join("\n"),
 				"info",
 			);
@@ -303,24 +303,24 @@ async function handleWorkflowsCommand(
 			const completed = service.getStatus().last;
 			if (completed) onCompleted?.(completed);
 			if (!ctx.hasUI || !completed || !onCompleted) {
-				ctx.ui.notify(`Workflow ${result.meta.name} 已完成。\n\n${resultText(result.result)}`, "info");
+				ctx.ui.notify(`Workflow ${result.meta.name} completed.\n\n${resultText(result.result)}`, "info");
 			}
 			return;
 		}
 		case "run": {
 			let prompt = rest.trim();
 			if (!prompt && ctx.hasUI) {
-				prompt = (await ctx.ui.input("Workflow prompt", "描述需要编排和执行的任务"))?.trim() ?? "";
+				prompt = (await ctx.ui.input("Workflow prompt", "Describe the task to orchestrate and execute"))?.trim() ?? "";
 			}
 			if (!prompt) throw new Error("Usage: /workflows run <prompt>");
-			ctx.ui.notify("正在根据提示词生成并校验 workflow 脚本…", "info");
+			ctx.ui.notify("Generating and validating the workflow script…", "info");
 			const generated = await service.generate(prompt, {
 				cwd: ctx.cwd,
 				includeProjectWorkflows,
 				parentModel: parentModel(ctx),
 				signal: ctx.signal,
 			});
-			ctx.ui.notify(`Workflow 脚本已生成并校验: ${generated.meta.name}（生成 ${generated.attempts} 次）`, "info");
+			ctx.ui.notify(`Workflow script generated and validated: ${generated.meta.name} (${generated.attempts} generation attempt(s))`, "info");
 			const result = await service.execute(generated.script, {
 				cwd: ctx.cwd,
 				includeProjectWorkflows,
@@ -332,7 +332,7 @@ async function handleWorkflowsCommand(
 			const completed = service.getStatus().last;
 			if (completed) onCompleted?.(completed);
 			if (!ctx.hasUI || !completed || !onCompleted) {
-				ctx.ui.notify(`Workflow ${result.meta.name} 已完成。\n\n${resultText(result.result)}`, "info");
+				ctx.ui.notify(`Workflow ${result.meta.name} completed.\n\n${resultText(result.result)}`, "info");
 			}
 			return;
 		}
@@ -370,7 +370,7 @@ export function registerWorkflows(omega: OmegaAPI, options: RegisterWorkflowsOpt
 	};
 
 	registerOmegaCommand(omega, "workflows", {
-		description: "查看状态，或运行、列出、校验和管理 Omega workflows",
+		description: "View status, or run, list, validate, and manage Omega workflows",
 		getArgumentCompletions: (prefix) => {
 			const context = completionContext;
 			const definitions = context
@@ -383,7 +383,7 @@ export function registerWorkflows(omega: OmegaAPI, options: RegisterWorkflowsOpt
 				rememberContext(ctx);
 				await handleWorkflowsCommand(args, ctx, service, publishCompleted);
 			} catch (error) {
-				ctx.ui.notify(`Workflows 命令失败：${error instanceof Error ? error.message : String(error)}`, "error");
+				ctx.ui.notify(`Workflows command failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});

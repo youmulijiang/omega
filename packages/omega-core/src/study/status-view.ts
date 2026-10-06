@@ -54,9 +54,9 @@ export class StudyStatusTracker {
 		const timestamp = Date.now();
 		this.snapshot = {
 			state: "running",
-			focus: oneLine(focus) || "从当前会话提炼可复用知识",
+			focus: oneLine(focus) || "Distill reusable knowledge from the current session",
 			startedAt: timestamp,
-			entries: [{ phase: "preparing", message: "正在整理学习要求与会话上下文", timestamp }],
+			entries: [{ phase: "preparing", message: "Organizing study requirements and session context", timestamp }],
 		};
 		this.publish();
 	}
@@ -80,7 +80,7 @@ export class StudyStatusTracker {
 			title: result.title,
 			summary: result.summary,
 			filename: result.filename,
-			entries: [...this.snapshot.entries, { phase: "completed", message: `学习完成：${result.title}`, timestamp }],
+			entries: [...this.snapshot.entries, { phase: "completed", message: `Study complete: ${result.title}`, timestamp }],
 		};
 		this.publish();
 	}
@@ -126,10 +126,10 @@ function padAnsi(value: string, width: number): string {
 }
 
 export function formatStudyStatus(snapshot: StudyStatusSnapshot): string {
-	if (snapshot.state === "idle") return "当前没有学习任务记录。";
+	if (snapshot.state === "idle") return "No study task recorded.";
 	const elapsed = formatElapsed(snapshot.startedAt, snapshot.finishedAt);
 	const entries = snapshot.entries.map((entry) => `- ${entry.message}`).join("\n");
-	return `学习状态：${snapshot.state}\n目标：${snapshot.focus ?? "未指定"}\n耗时：${elapsed}\n\n${entries}`;
+	return `Study state: ${snapshot.state}\nFocus: ${snapshot.focus ?? "unspecified"}\nElapsed: ${elapsed}\n\n${entries}`;
 }
 
 export class StudyStatusView implements Component {
@@ -177,22 +177,22 @@ export class StudyStatusView implements Component {
 							: this.theme.fg("dim", "○");
 		const stateLabel =
 			snapshot.state === "running"
-				? "AI 正在学习"
+				? "AI is studying"
 				: snapshot.state === "completed"
-					? "学习完成"
+					? "Study complete"
 					: snapshot.state === "failed"
-						? "学习失败"
+						? "Study failed"
 						: snapshot.state === "cancelled"
-							? "学习已取消"
-							: "暂无学习记录";
+							? "Study cancelled"
+							: "No study records yet";
 		body.push(
 			`${stateIcon} ${this.theme.bold(stateLabel)} ${this.theme.fg("dim", `· ${formatElapsed(snapshot.startedAt, snapshot.finishedAt)}`)}`,
 		);
-		if (snapshot.focus) body.push(this.theme.fg("muted", `目标：${snapshot.focus}`));
-		body.push("", this.theme.fg("toolTitle", this.theme.bold("学习过程")));
+		if (snapshot.focus) body.push(this.theme.fg("muted", `Focus: ${snapshot.focus}`));
+		body.push("", this.theme.fg("toolTitle", this.theme.bold("Study process")));
 
 		if (snapshot.entries.length === 0) {
-			body.push(this.theme.fg("muted", "尚未启动 /study。"));
+			body.push(this.theme.fg("muted", "No /study run yet."));
 		} else {
 			const visibleEntries = snapshot.entries.slice(-10);
 			for (const [index, entry] of visibleEntries.entries()) {
@@ -211,7 +211,7 @@ export class StudyStatusView implements Component {
 		}
 
 		if (snapshot.title || snapshot.summary) {
-			body.push("", this.theme.fg("toolTitle", this.theme.bold(snapshot.title ?? "学习结果")));
+			body.push("", this.theme.fg("toolTitle", this.theme.bold(snapshot.title ?? "Study result")));
 			if (snapshot.summary) body.push(snapshot.summary);
 			if (snapshot.filename) body.push(this.theme.fg("dim", `~/.omega/knowledge/${snapshot.filename}`));
 		}
@@ -219,9 +219,9 @@ export class StudyStatusView implements Component {
 		const cancel = this.keybindings.getKeys("tui.select.cancel")[0] ?? "esc";
 		body.push(
 			"",
-			this.theme.fg("dim", `${cancel} 关闭窗口${snapshot.state === "running" ? " · 后台学习不会停止" : ""}`),
+			this.theme.fg("dim", `${cancel} Close window${snapshot.state === "running" ? " · background study keeps running" : ""}`),
 		);
-		const title = " AI 学习状态 ";
+		const title = " AI Study Status ";
 		const top = this.theme.fg("border", `╭${title}${"─".repeat(Math.max(0, safeWidth - visibleWidth(title) - 2))}╮`);
 		const bottom = this.theme.fg("border", `╰${"─".repeat(innerWidth + 2)}╯`);
 		return [

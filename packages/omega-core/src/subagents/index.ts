@@ -853,24 +853,24 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 			if (matches.length > 1) {
 				return {
 					ok: false,
-					message: `Agent ${identifier} 有多个运行中任务，请指定任务 ID：${matches.map(([id]) => id).join(", ")}`,
+					message: `Agent ${identifier} has multiple running tasks; specify a task ID: ${matches.map(([id]) => id).join(", ")}`,
 				};
 			}
 			if (matches.length === 1) [resolvedTaskId, task] = matches[0];
 		}
-		if (!task) return { ok: false, message: `未找到运行中的 subagent 任务 ${identifier}。` };
-		if (!task.control) return { ok: false, message: `${resolvedTaskId} 的 RPC 通道尚未就绪。` };
+		if (!task) return { ok: false, message: `Running subagent task ${identifier} not found.` };
+		if (!task.control) return { ok: false, message: `The RPC channel for ${resolvedTaskId} is not ready yet.` };
 		if (!task.control.sendPrompt(message, behavior)) {
-			return { ok: false, message: `${resolvedTaskId} 的 RPC 通道已经关闭。` };
+			return { ok: false, message: `The RPC channel for ${resolvedTaskId} is already closed.` };
 		}
-		return { ok: true, message: `已向 ${resolvedTaskId} (${task.agent}) 发送消息。` };
+		return { ok: true, message: `Message sent to ${resolvedTaskId} (${task.agent}).` };
 	};
 
 	omega.registerShortcut("shift+down", {
-		description: "选择并查看 subagent 实时会话",
+		description: "Select and view a live subagent session",
 		handler: async (ctx) => {
 			if (latestRuntimeResults.length === 0) {
-				ctx.ui.notify("当前没有可查看的 subagent 运行记录。", "info");
+				ctx.ui.notify("No subagent run records to view.", "info");
 				return;
 			}
 			runtimeViewDepth++;
@@ -945,26 +945,26 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	};
 
 	registerOmegaCommand(omega, "subagent:list", {
-		description: "列出当前可用的 Omega 子代理",
+		description: "List currently available Omega subagents",
 		handler: listSubagents,
 	});
 
 	registerOmegaCommand(omega, "subagent:status", {
-		description: "显示 Omega 子代理功能状态",
+		description: "Show the Omega subagents feature status",
 		handler: async (_args, ctx) => {
 			const discovery = discoverAgents(ctx.cwd, "both", shouldIncludeProjectAgents(ctx.cwd, ctx.isProjectTrusted()));
-			const agents = discovery.agents.map((agent) => `${agent.name} [${agent.source}]`).join(", ") || "无";
+			const agents = discovery.agents.map((agent) => `${agent.name} [${agent.source}]`).join(", ") || "none";
 			const runningTasks =
-				[...activeTasks.entries()].map(([id, task]) => `${id} (${task.agent})`).join(", ") || "无";
+				[...activeTasks.entries()].map(([id, task]) => `${id} (${task.agent})`).join(", ") || "none";
 			ctx.ui.notify(
 				[
-					`Subagents: ${enabled ? "已启用" : "已禁用"}`,
-					`工具状态: ${runtimeEnabled ? "已注册" : "未注册"}`,
-					`委派深度: ${currentDepth}/${maxDepth}`,
-					`循环防护: ${preventCycles ? "已启用" : "已禁用"}`,
-					`可用 Agent (${discovery.agents.length}): ${agents}`,
-					`运行中任务 (${activeTasks.size}): ${runningTasks}`,
-					`设置文件: ${settingsPath}`,
+					`Subagents: ${enabled ? "enabled" : "disabled"}`,
+					`Tools: ${runtimeEnabled ? "registered" : "not registered"}`,
+					`Delegation depth: ${currentDepth}/${maxDepth}`,
+					`Cycle guard: ${preventCycles ? "enabled" : "disabled"}`,
+					`Available agents (${discovery.agents.length}): ${agents}`,
+					`Running tasks (${activeTasks.size}): ${runningTasks}`,
+					`Settings file: ${settingsPath}`,
 				].join("\n"),
 				"info",
 			);
@@ -972,7 +972,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	});
 
 	registerOmegaCommand(omega, "subagents:kill", {
-		description: "终止一个或全部正在运行的 Omega 子代理任务",
+		description: "Kill one or all running Omega subagent tasks",
 		handler: async (args, ctx) => {
 			const taskId = args.trim();
 			if (!taskId) {
@@ -980,8 +980,8 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 				for (const task of tasks) task.controller.abort();
 				ctx.ui.notify(
 					tasks.length > 0
-						? `已请求终止全部 ${tasks.length} 个 subagent 任务。`
-						: "当前没有运行中的 subagent 任务。",
+						? `Requested to kill all ${tasks.length} subagent tasks.`
+						: "No running subagent tasks.",
 					"info",
 				);
 				return;
@@ -995,7 +995,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 					[resolvedTaskId, task] = matches[0];
 				} else if (matches.length > 1) {
 					ctx.ui.notify(
-						`Agent ${taskId} 有多个运行中任务，请指定任务 ID：${matches.map(([id]) => id).join(", ")}`,
+						`Agent ${taskId} has multiple running tasks; specify a task ID: ${matches.map(([id]) => id).join(", ")}`,
 						"warning",
 					);
 					return;
@@ -1005,24 +1005,24 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 				const available = [...activeTasks.entries()].map(([id, item]) => `${id} (${item.agent})`).join(", ");
 				ctx.ui.notify(
 					available
-						? `未找到任务 ${taskId}。运行中的任务：${available}`
-						: `未找到任务 ${taskId}，当前没有运行中的 subagent 任务。`,
+						? `Task ${taskId} not found. Running tasks: ${available}`
+						: `Task ${taskId} not found; there are no running subagent tasks.`,
 					"warning",
 				);
 				return;
 			}
 
 			task.controller.abort();
-			ctx.ui.notify(`已请求终止 ${resolvedTaskId} (${task.agent})。`, "info");
+			ctx.ui.notify(`Requested to kill ${resolvedTaskId} (${task.agent}).`, "info");
 		},
 	});
 
 	registerOmegaCommand(omega, "subagents:send", {
-		description: "向正在运行的 Omega 子代理发送协调消息",
+		description: "Send a coordination message to a running Omega subagent",
 		handler: async (args, ctx) => {
 			const separator = args.search(/\s/u);
 			if (separator < 1 || !args.slice(separator).trim()) {
-				ctx.ui.notify("用法：/subagents:send <任务ID或唯一Agent名> <消息>", "warning");
+				ctx.ui.notify("Usage: /subagents:send <task ID or unique agent name> <message>", "warning");
 				return;
 			}
 			const sent = sendTaskMessage(args.slice(0, separator), args.slice(separator).trim(), "steer");
@@ -1031,25 +1031,25 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 	});
 
 	registerOmegaCommand(omega, "subagent:settings", {
-		description: "启用或禁用 Omega 子代理功能",
+		description: "Enable or disable the Omega subagents feature",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
-				ctx.ui.notify("/subagent:settings 需要交互式 UI。", "warning");
+				ctx.ui.notify("/subagent:settings requires an interactive UI.", "warning");
 				return;
 			}
-			const selected = await ctx.ui.select("Subagents 设置", ["启用", "禁用"]);
+			const selected = await ctx.ui.select("Subagents settings", ["Enable", "Disable"]);
 			if (!selected) return;
-			const nextEnabled = selected === "启用";
+			const nextEnabled = selected === "Enable";
 			if (nextEnabled === enabled) {
-				ctx.ui.notify(`Subagents 已经${enabled ? "启用" : "禁用"}。`, "info");
+				ctx.ui.notify(`Subagents are already ${enabled ? "enabled" : "disabled"}.`, "info");
 				return;
 			}
 			try {
 				writeSubagentSettings({ enabled: nextEnabled }, settingsPath);
-				ctx.ui.notify(`Subagents 已${nextEnabled ? "启用" : "禁用"}，正在重新加载扩展。`, "info");
+				ctx.ui.notify(`Subagents ${nextEnabled ? "enabled" : "disabled"}; reloading the extension.`, "info");
 				await ctx.reload();
 			} catch (error) {
-				ctx.ui.notify(`保存 Subagents 设置失败: ${String(error)}`, "error");
+				ctx.ui.notify(`Failed to save Subagents settings: ${String(error)}`, "error");
 			}
 		},
 	});
@@ -1120,7 +1120,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 						content: [
 							{
 								type: "text" as const,
-								text: identifier ? `未找到 subagent 任务 ${identifier}。` : "没有 subagent 运行记录。",
+								text: identifier ? `Subagent task ${identifier} not found.` : "No subagent run records.",
 							},
 						],
 						details: { results: [] },
@@ -1141,7 +1141,7 @@ export function registerSubagents(omega: OmegaAPI, options: RegisterSubagentsOpt
 								?.filter((part) => part.type === "text")
 								.map((part) => part.text)
 								.join("") ||
-							"(暂无回答)";
+							"(no output yet)";
 						return `${result.taskId ?? "unknown"} (${result.agent}) [${state}]\n${output}`;
 					})
 					.join("\n\n");
@@ -1355,7 +1355,7 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 									),
 								SUBAGENT_VIEW_OVERLAY,
 							)
-							.catch((error) => ctx.ui.notify(`打开 subagent 运行视图失败：${String(error)}`, "error"))
+							.catch((error) => ctx.ui.notify(`Failed to open the subagent run view: ${String(error)}`, "error"))
 							.finally(() => {
 								runtimeViewerOpen = false;
 								runtimeViewDepth = Math.max(0, runtimeViewDepth - 1);
@@ -1422,9 +1422,9 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 					void backgroundExecution
 						.then((result) => {
 							publishRuntimeResults(result.details.results);
-							ctx.ui.notify("Subagent 后台运行已结束。", result.details.failed ? "warning" : "info");
+							ctx.ui.notify("Subagent background run finished.", result.details.failed ? "warning" : "info");
 						})
-						.catch((error) => ctx.ui.notify(`Subagent 后台运行失败：${String(error)}`, "error"))
+						.catch((error) => ctx.ui.notify(`Subagent background run failed: ${String(error)}`, "error"))
 						.finally(() => {
 							cleanupRuntime();
 							for (const id of reservedSessionIds) activeSessionIds.delete(id);
@@ -1437,7 +1437,7 @@ This guard prevents self-recursion and cyclic handoffs (for example A -> B -> A)
 						content: [
 							{
 								type: "text" as const,
-								text: `已在后台启动 ${launched.length} 个 subagent 任务：${launched.map((result) => `${result.taskId} (${result.agent})`).join(", ")}。主 Agent 可继续处理其他任务，并可使用 subagent_message 协调。`,
+								text: `Started ${launched.length} subagent task(s) in the background: ${launched.map((result) => `${result.taskId} (${result.agent})`).join(", ")}. The main agent can continue with other tasks and coordinate via subagent_message.`,
 							},
 						],
 						details: makeDetails(launched),

@@ -387,7 +387,7 @@ return { received: args }`,
 		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("return { received: args }"), "info");
 
 		await command?.("validate echo_flow", context);
-		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("Workflow 模板校验通过: echo_flow"), "info");
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("Workflow template validated: echo_flow"), "info");
 
 		await command?.('run-template echo_flow {"target":"lab"}', context);
 		expect(sendMessage).toHaveBeenCalledWith(

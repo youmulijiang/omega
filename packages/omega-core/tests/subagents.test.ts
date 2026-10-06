@@ -692,7 +692,7 @@ describe("Omega subagent integration", () => {
 		const ctx = {
 			hasUI: true,
 			ui: {
-				select: async () => "禁用",
+				select: async () => "Disable",
 				notify: () => undefined,
 			},
 			reload: async () => {
