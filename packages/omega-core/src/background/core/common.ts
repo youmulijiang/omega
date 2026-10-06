@@ -806,7 +806,7 @@ export function escapeXml(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export const UPDATE_COMMAND = "/bg-update";
+export const UPDATE_COMMAND = "/bg:update";
 
 interface ParsedSemver {
 	major: number;

@@ -62,10 +62,17 @@ describe("Omega background integration", () => {
 			"bg_logs",
 			"bg_kill",
 		]);
-		expect(commands.map((command) => command.name)).toEqual(
-			expect.arrayContaining(["bg", "tasks", "bg:tasks", "bg:clear", "jobs", "logs", "kill", "fusion"]),
-		);
-		expect(commands.map((command) => command.name)).not.toEqual(expect.arrayContaining(["bg-tasks", "bg-clear"]));
+		expect(commands.map((command) => command.name).sort()).toEqual([
+			"bg",
+			"bg:claude-cache",
+			"bg:clear",
+			"bg:fusion",
+			"bg:fusion-models",
+			"bg:jobs",
+			"bg:kill",
+			"bg:logs",
+			"bg:tasks",
+		]);
 		expect(commands.every((command) => command.showSourceTag === false)).toBe(true);
 		expect(listeners.has("pi-background-tasks:request:v1")).toBe(true);
 		expect(pi.registerProvider).toHaveBeenCalledWith("anthropic", expect.objectContaining({ api: "anthropic-messages" }));

@@ -51,8 +51,9 @@ import {
 
 const FUSION_RESULT_MESSAGE_TYPE = "fusion-result";
 const FUSION_PROGRESS_SCHEMA_VERSION = "pi-background-tasks.fusion-progress.v1";
-const FUSION_COMMAND_USAGE = "Usage: /fusion <prompt> (or run /fusion with no arguments to open the multiline editor).";
-const FUSION_MODEL_COMMAND_NAME = "fusion-models";
+const FUSION_COMMAND_USAGE =
+	"Usage: /bg:fusion <prompt> (or run /bg:fusion with no arguments to open the multiline editor).";
+const FUSION_MODEL_COMMAND_NAME = "bg:fusion-models";
 export const FUSION_REASON_TOOL_NAME = "fusion_reason";
 export const FUSION_INVESTIGATE_TOOL_NAME = "fusion_investigate";
 export const FUSION_RESEARCH_TOOL_NAME = "fusion_research";
@@ -910,7 +911,7 @@ export function registerFusionExtension(pi: ExtensionAPI, deps: FusionExtensionD
 		);
 	});
 
-	pi.registerCommand("fusion", {
+	pi.registerCommand("bg:fusion", {
 		description: "Start fixed-purpose Fusion reason in the background and return immediately.",
 		showSourceTag: false,
 		handler: async (args, ctx) => {
@@ -947,7 +948,7 @@ export function registerFusionExtension(pi: ExtensionAPI, deps: FusionExtensionD
 		description: "Open the five-slot global fusion model selector.",
 		showSourceTag: false,
 		handler: async (_args, ctx) => {
-			const modeError = "/fusion-models requires Pi TUI mode; it is unavailable in RPC, JSON, and print modes.";
+			const modeError = "/bg:fusion-models requires Pi TUI mode; it is unavailable in RPC, JSON, and print modes.";
 			if (!ctx.hasUI) throw new Error(modeError);
 			if (!isTuiContext(ctx)) {
 				ctx.ui.notify(modeError, "error");

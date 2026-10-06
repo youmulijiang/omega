@@ -115,39 +115,39 @@ export const FUSION_BUDGET_POLICY: FusionBudgetPolicyDescriptor = {
 
 const REASON_EMPTY_REMEDIATION: readonly string[] = Object.freeze([
 	"Start a fresh Pi conversation, or run fusion_reason earlier in the session.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 	"Restate only the required prior findings in the fusion_reason prompt.",
 ]);
 
 const REASON_REQUEST_REMEDIATION: readonly string[] = Object.freeze([
 	"Provide a shorter fusion_reason prompt.",
 	"Start a fresh Pi conversation, or run fusion_reason earlier in the session.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 
 const INVESTIGATE_EMPTY_REMEDIATION: readonly string[] = Object.freeze([
 	"Split the repository investigation into smaller independently complete path or subsystem scopes.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 const INVESTIGATE_REQUEST_REMEDIATION: readonly string[] = Object.freeze([
 	"Narrow the fusion_investigate objective, repository scope, or required evidence.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 const RESEARCH_EMPTY_REMEDIATION: readonly string[] = Object.freeze([
 	"Split the research into smaller independently complete source sets.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 const RESEARCH_REQUEST_REMEDIATION: readonly string[] = Object.freeze([
 	"Narrow the fusion_research question or split large declared-source sets across independent runs.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 const VALIDATE_EMPTY_REMEDIATION: readonly string[] = Object.freeze([
 	"Split validation into smaller independently complete change or acceptance-criterion scopes.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 const VALIDATE_REQUEST_REMEDIATION: readonly string[] = Object.freeze([
 	"Narrow the fusion_validate scope, acceptance criteria, or supplied verification evidence.",
-	"Raise the route's context window with a larger-context subscription model via /fusion-models.",
+	"Raise the route's context window with a larger-context subscription model via /bg:fusion-models.",
 ]);
 
 function cleanRemediation(profile: FusionWorkflowProfile, requestDeterminesFeasibility: boolean): readonly string[] {
@@ -286,7 +286,7 @@ function routeCapacity(model: ResolvedFusionModel, role: FusionRouteCapacity["ro
 			FUSION_SAFETY_RESERVE_TOKENS +
 			FUSION_MIN_CANONICAL_INPUT_TOKENS;
 		throw new FusionError(
-			`fusion ${role} route ${model.qualifiedId} has a ${String(contextWindow)}-token context window, but Fusion requires at least ${String(minimumContextWindow)} tokens: ${String(reservedOutputTokens)} reserved for the route's configured maximum output + ${String(FUSION_FRAMING_RESERVE_TOKENS)} framing + ${String(FUSION_SAFETY_RESERVE_TOKENS)} safety + ${String(FUSION_MIN_CANONICAL_INPUT_TOKENS)} usable input. Choose a larger-context or lower-max-output subscription model for this slot with /fusion-models.`,
+			`fusion ${role} route ${model.qualifiedId} has a ${String(contextWindow)}-token context window, but Fusion requires at least ${String(minimumContextWindow)} tokens: ${String(reservedOutputTokens)} reserved for the route's configured maximum output + ${String(FUSION_FRAMING_RESERVE_TOKENS)} framing + ${String(FUSION_SAFETY_RESERVE_TOKENS)} safety + ${String(FUSION_MIN_CANONICAL_INPUT_TOKENS)} usable input. Choose a larger-context or lower-max-output subscription model for this slot with /bg:fusion-models.`,
 			{ code: "model_capacity_unknown", childCreated: false },
 		);
 	}

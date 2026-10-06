@@ -335,7 +335,7 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		currentCtx = ctx;
 		if (!ctx.hasUI) {
 			ctx.ui.notify(
-				"Background task manager requires an interactive Pi UI. Use /jobs, /logs, or the bg_status/bg_logs tools in non-interactive mode.",
+				"Background task manager requires an interactive Pi UI. Use /bg:jobs, /bg:logs, or the bg_status/bg_logs tools in non-interactive mode.",
 				"error",
 			);
 			return;
@@ -509,15 +509,6 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("tasks", {
-		description: "Open the Claude-like background task manager UI",
-		showSourceTag: false,
-		handler: async (args, ctx) => {
-			const taskId = optionalTrimmed(args);
-			await openTaskManager(ctx, taskId);
-		},
-	});
-
 	pi.registerCommand("bg:tasks", {
 		description: "Open the background task manager UI",
 		showSourceTag: false,
@@ -560,7 +551,7 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("jobs", {
+	pi.registerCommand("bg:jobs", {
 		description: "List running and recent background tasks",
 		showSourceTag: false,
 		handler: (_args, ctx) => {
@@ -571,8 +562,8 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("logs", {
-		description: "Show bounded output from a background task: /logs <id> [maxBytes]",
+	pi.registerCommand("bg:logs", {
+		description: "Show bounded output from a background task: /bg:logs <id> [maxBytes]",
 		showSourceTag: false,
 		getArgumentCompletions: (prefix) => {
 			const matches = registry
@@ -600,8 +591,8 @@ export default function backgroundTasksExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("kill", {
-		description: "Stop a running background task: /kill <id>",
+	pi.registerCommand("bg:kill", {
+		description: "Stop a running background task: /bg:kill <id>",
 		showSourceTag: false,
 		getArgumentCompletions: (prefix) => {
 			const matches = registry

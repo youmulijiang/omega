@@ -2751,7 +2751,7 @@ function isAnthropicAttributionClaimProbe(value: unknown): value is AnthropicAtt
 
 /**
  * Prevent two independently installed copies from registering duplicate provider
- * hooks and `/claude-cache` commands in one Pi runtime. Pi loads extension factories
+ * hooks and `/bg:claude-cache` commands in one Pi runtime. Pi loads extension factories
  * sequentially and its EventBus dispatches listeners synchronously, so an existing
  * owner acknowledges this probe before emit() returns. The winning extension only
  * publishes ownership after every registration below succeeds; a factory that throws
@@ -2791,7 +2791,7 @@ export default function spawnAnthropicAttribution(
 			),
 	});
 
-	pi.registerCommand("claude-cache", {
+	pi.registerCommand("bg:claude-cache", {
 		description: "Show or set Claude cache retention for this session (short, long, default)",
 		showSourceTag: false,
 		handler: (args, ctx) => {
@@ -2805,7 +2805,7 @@ export default function spawnAnthropicAttribution(
 				return;
 			}
 			if (action !== "short" && action !== "long" && action !== "default") {
-				throw new Error("Usage: /claude-cache [status|short|long|default]");
+				throw new Error("Usage: /bg:claude-cache [status|short|long|default]");
 			}
 			sessionCacheRetention = action === "default" ? undefined : action;
 			pi.appendEntry(ANTHROPIC_CACHE_RETENTION_ENTRY, {
