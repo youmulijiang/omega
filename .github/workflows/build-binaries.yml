@@ -42,8 +42,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tag must match vX.Y.Z: $RELEASE_TAG"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
+            echo "::error::Release tag must match vX.Y.Z or vX.Y.Z-beta.N: $RELEASE_TAG"
             exit 1
           fi
 
@@ -239,7 +239,13 @@ jobs:
             exit 1
           fi
 
+          release_flags=()
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+
           gh release create "$RELEASE_TAG" \
+            "${release_flags[@]}" \
             --verify-tag \
             --title "OMEGA $RELEASE_TAG" \
             --generate-notes \

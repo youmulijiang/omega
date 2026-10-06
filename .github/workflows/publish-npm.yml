@@ -48,8 +48,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tag must match vX.Y.Z: $RELEASE_TAG"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
+            echo "::error::Release tag must match vX.Y.Z or vX.Y.Z-beta.N: $RELEASE_TAG"
             exit 1
           fi
 
@@ -91,4 +91,11 @@ jobs:
       - name: Publish fork and omega
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/publish-omega-forks.mjs --no-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_tag=latest
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            dist_tag=beta
+          fi
+          node scripts/publish-omega-forks.mjs --no-build --tag "$dist_tag"
