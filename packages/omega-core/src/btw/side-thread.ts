@@ -72,6 +72,8 @@ export interface CompleteSideThreadTurnOptions {
 	question: string;
 	thinkingLevel: BtwThinkingLevel;
 	auth: SideQuestionAuth;
+	/** 主会话的只读投影；提供后侧线问答据此作答（见 buildSideThreadSystemPrompt）。 */
+	mainContext?: string;
 	signal?: AbortSignal;
 	completeSimple: CompleteSimpleFunction;
 }
@@ -87,6 +89,7 @@ export async function completeSideThreadTurn({
 	question,
 	thinkingLevel,
 	auth,
+	mainContext,
 	signal,
 	completeSimple,
 }: CompleteSideThreadTurnOptions): Promise<CompleteSideThreadTurnResult> {
@@ -94,7 +97,10 @@ export async function completeSideThreadTurn({
 	try {
 		const response = await completeSimple(
 			model,
-			{ systemPrompt: SYSTEM_PROMPT, messages: buildSideThreadMessages(thread, question) },
+			{
+				systemPrompt: buildSideThreadSystemPrompt(mainContext),
+				messages: buildSideThreadMessages(thread, question),
+			},
 			buildStreamOptions(auth, thinkingLevel, signal),
 		);
 		if (signal?.aborted || response?.stopReason === "aborted") return { kind: "aborted" };
@@ -122,6 +128,8 @@ export interface CompleteSideQuestionOptions {
 	question: string;
 	thinkingLevel: BtwThinkingLevel;
 	auth: SideQuestionAuth;
+	/** 主会话的只读投影；提供后侧线问答据此作答（见 buildSideThreadSystemPrompt）。 */
+	mainContext?: string;
 	signal?: AbortSignal;
 	completeSimple: CompleteSimpleFunction;
 }
@@ -131,13 +139,14 @@ export async function completeSideQuestion({
 	question,
 	thinkingLevel,
 	auth,
+	mainContext,
 	signal,
 	completeSimple,
 }: CompleteSideQuestionOptions): Promise<AssistantMessage> {
 	return completeSimple(
 		model,
 		{
-			systemPrompt: SYSTEM_PROMPT,
+			systemPrompt: buildSideThreadSystemPrompt(mainContext),
 			messages: [createUserMessage(buildUserPrompt(question))],
 		},
 		buildStreamOptions(auth, thinkingLevel, signal),
@@ -168,7 +177,7 @@ function isAssistantMessage(value: unknown): value is AssistantMessage {
 
 export function buildUserPrompt(question: string): string {
 	return [
-		"Answer this isolated side question without modifying or referring to the main conversation.",
+		"Answer this side question without modifying the main conversation.",
 		"",
 		"<side_question>",
 		question,
@@ -209,4 +218,21 @@ function formatError(error: unknown): string {
 
 const SYSTEM_PROMPT = `You answer quick side questions for a coding-agent user.
 
-Answer the user's isolated side question directly and concisely. Do not claim to have changed files, run tools, or affected the main task. Do not rely on or request the main conversation context.`;
+Answer the user's side question directly and concisely. Do not claim to have changed files, run tools, or affected the main task.`;
+
+/**
+ * 侧线问答的系统提示。主会话上下文以只读块附加：侧线据此作答，但既不写入
+ * 主会话，也不改动它。没有上下文时退化为纯隔离问答。
+ */
+export function buildSideThreadSystemPrompt(mainContext?: string): string {
+	if (!mainContext?.trim()) return SYSTEM_PROMPT;
+	return [
+		SYSTEM_PROMPT,
+		"",
+		"The main conversation so far is included below as read-only context. Ground your answer in it when relevant.",
+		"Never claim to have modified it, and do not add your answer to it.",
+		"<main_conversation>",
+		mainContext,
+		"</main_conversation>",
+	].join("\n");
+}
