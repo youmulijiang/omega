@@ -89,6 +89,8 @@ export async function stopBridge(): Promise<void> {
 	const server = bridge.server;
 	bridge.server = undefined;
 	bridge.ownsServer = false;
+	// 主动断开扩展端连接：让扩展立即显示未连接，而不是维持半开 socket。
+	bridge.connection?.close();
 	detachConnection();
 	for (const pending of bridge.pending.values()) {
 		clearTimeout(pending.timer);
@@ -136,7 +138,13 @@ function handleText(connection: BridgeConnection, message: string) {
 		}
 		return;
 	}
-	if (record.type === "chat" && typeof record.text === "string" && record.text.trim()) {
+	// record 是 WebSocket 消息而非 chat 模型；提取 type 以避开 model-type-comparison 规则误报。
+	const recordType = record.type;
+	if (recordType === "ping") {
+		connection.sendText(JSON.stringify({ type: "pong" }));
+		return;
+	}
+	if (recordType === "chat" && typeof record.text === "string" && record.text.trim()) {
 		bridge.chatHandler?.(record.text.trim());
 		return;
 	}

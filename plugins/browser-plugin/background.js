@@ -9,8 +9,13 @@ const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 10000;
 const MAX_TEXT_LENGTH = 50000;
 const KEEPALIVE_ALARM = "bridge-connect";
+// 心跳：每个已连接端口定期 ping，超过 STALE_AFTER_MS 没有任何回包即判定连接已失效。
+// Omega 进程消失、socket 半开等情况下 socket 可能长期停留在 OPEN，只靠 onclose 会
+// 误报「已连接」，因此以最近一次收到消息的时间作为存活依据。
+const PING_INTERVAL_MS = 5000;
+const STALE_AFTER_MS = 15000;
 
-const connections = new Map(); // port -> { socket, generation, agentId, agentName, sessionInfo, timer, lastAttempt, lastError }
+const connections = new Map(); // port -> { socket, generation, agentId, agentName, sessionInfo, timer, lastAttempt, lastSeenAt, lastPingAt, lastError }
 let selectedAgentId = null;
 let keepaliveTimer = null;
 let connectGeneration = 0;
@@ -127,6 +132,7 @@ function normalizePort(value) {
 async function ensureConnections(force = false) {
 	const range = await loadPort();
 	const now = Date.now();
+	sweepConnections(now);
 	for (let probe = range.start; probe <= range.end; probe += 1) {
 		const existing = connections.get(probe);
 		const state = existing?.socket?.readyState;
@@ -143,6 +149,27 @@ async function ensureConnections(force = false) {
 	if (!keepaliveTimer) {
 		keepaliveTimer = setInterval(() => ensureConnections(), PROBE_INTERVAL_MS);
 	}
+}
+
+// 心跳巡检：向已连接端口发 ping；长时间无回包的连接直接断开，触发重连。
+function sweepConnections(now) {
+	for (const [probe, conn] of connections) {
+		if (conn.socket?.readyState !== WebSocket.OPEN) continue;
+		if (now - conn.lastSeenAt > STALE_AFTER_MS) {
+			conn.lastError = `No response from ws://127.0.0.1:${probe}`;
+			conn.socket.close();
+			continue;
+		}
+		if (now - conn.lastPingAt >= PING_INTERVAL_MS) {
+			conn.lastPingAt = now;
+			sendOn(conn, { type: "ping" });
+		}
+	}
+}
+
+/** 连接可用 = socket 处于 OPEN 且最近仍收到过消息。 */
+function isLive(conn) {
+	return conn.socket?.readyState === WebSocket.OPEN && Date.now() - conn.lastSeenAt <= STALE_AFTER_MS;
 }
 
 function connectPort(probe, force) {
@@ -167,6 +194,8 @@ function connectPort(probe, force) {
 		sessionInfo: null,
 		timer: null,
 		lastAttempt: Date.now(),
+		lastSeenAt: Date.now(),
+		lastPingAt: 0,
 		lastError: "",
 	};
 	connections.set(probe, conn);
@@ -184,11 +213,13 @@ function connectPort(probe, force) {
 	ws.onopen = () => {
 		if (generation !== conn.generation) return;
 		conn.lastError = "";
+		conn.lastSeenAt = Date.now();
 		ws.send(JSON.stringify({ type: "hello", extension: "omega-browser-bridge", version: "1.1.0" }));
 	};
 
 	ws.onmessage = (event) => {
 		if (generation !== conn.generation) return;
+		conn.lastSeenAt = Date.now();
 		handleMessage(conn, probe, event.data).catch((error) => {
 			conn.lastError = String(error);
 		});
@@ -237,7 +268,7 @@ function destroyConnection(probe, conn) {
 
 function findConnectionByAgentId(agentId) {
 	for (const conn of connections.values()) {
-		if (conn.agentId === agentId && conn.socket?.readyState === WebSocket.OPEN) return conn;
+		if (conn.agentId === agentId && isLive(conn)) return conn;
 	}
 	return null;
 }
@@ -245,7 +276,7 @@ function findConnectionByAgentId(agentId) {
 function connectedConnections() {
 	const result = [];
 	for (const conn of connections.values()) {
-		if (conn.socket?.readyState === WebSocket.OPEN && conn.agentId) result.push(conn);
+		if (conn.agentId && isLive(conn)) result.push(conn);
 	}
 	return result;
 }
@@ -253,8 +284,12 @@ function connectedConnections() {
 function resolveSelectedAgentId() {
 	const live = connectedConnections();
 	if (selectedAgentId && live.some((conn) => conn.agentId === selectedAgentId)) return selectedAgentId;
-	if (live.length > 0) selectedAgentId = live[0].agentId;
-	return selectedAgentId;
+	if (live.length > 0) {
+		selectedAgentId = live[0].agentId;
+		return selectedAgentId;
+	}
+	// 无存活连接时不存在「当前智能体」：保留选择以便重连后恢复，但不对外暴露。
+	return undefined;
 }
 
 function selectedConnection() {
@@ -267,7 +302,7 @@ function listAgents() {
 	const selected = resolveSelectedAgentId();
 	const result = [];
 	for (const [probe, conn] of connections) {
-		if (conn.socket?.readyState !== WebSocket.OPEN) continue;
+		if (!isLive(conn)) continue;
 		result.push({
 			port: probe,
 			agentId: conn.agentId ?? `port-${probe}`,

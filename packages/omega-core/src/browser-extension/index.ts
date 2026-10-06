@@ -66,6 +66,15 @@ async function saveSessionRegistry(): Promise<void> {
 	await writeFile(SESSION_REGISTRY_FILE, JSON.stringify(sessionRegistry, null, "\t"), "utf8");
 }
 
+/** 反查会话文件名对应的注册名称（用于重启后恢复侧边栏会话名）。 */
+function findSessionName(file: string | undefined): string | undefined {
+	if (!file) return undefined;
+	for (const [name, registered] of Object.entries(sessionRegistry)) {
+		if (registered === file) return name;
+	}
+	return undefined;
+}
+
 export function registerBrowserExtension(omega: OmegaAPI) {
 	setBridgeStatusProvider(() => ({ model: toModelInfo(sessionCtx?.model), sessionId: currentSessionName }));
 	setBridgeChatHandler((text) => {
@@ -110,7 +119,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 	omega.registerTool(browserExtTool);
 
 	omega.registerCommand("browser-bridge", {
-		description: "Control the Chrome extension bridge for browser control",
+		description: "Control the Chrome extension bridge (status/start/stop/name)",
 		showSourceTag: false,
 		handler: async (args, ctx) => {
 			commandCtx = ctx;
@@ -121,6 +130,8 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 	omega.on("session_start", async (_event, ctx) => {
 		sessionCtx = ctx;
 		currentModel = toModelInfo(ctx.model);
+		await loadSessionRegistry();
+		currentSessionName = findSessionName(ctx.sessionManager.getSessionFile());
 		pushBridgeEvent(sessionInfoEvent());
 		const outcome = await startBridge();
 		if (outcome.started) {
@@ -164,6 +175,7 @@ export function registerBrowserExtension(omega: OmegaAPI) {
 		setBridgeStopHandler(undefined);
 		sessionCtx = undefined;
 		commandCtx = undefined;
+		currentSessionName = undefined;
 		await stopBridge();
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
@@ -228,7 +240,10 @@ async function handleBridgeSessionSwitch(action: { op: "new" | "switch"; name: s
 }
 
 async function handleBrowserBridgeCommand(args: string, ctx: ExtensionCommandContext) {
-	const command = args.trim().toLowerCase() || "status";
+	const trimmed = args.trim();
+	const spaceIndex = trimmed.indexOf(" ");
+	const command = (spaceIndex < 0 ? trimmed : trimmed.slice(0, spaceIndex)).toLowerCase() || "status";
+	const commandArgs = spaceIndex < 0 ? "" : trimmed.slice(spaceIndex + 1).trim();
 	switch (command) {
 		case "status": {
 			const status = bridgeStatus();
@@ -255,7 +270,36 @@ async function handleBrowserBridgeCommand(args: string, ctx: ExtensionCommandCon
 			ctx.ui.notify("Browser bridge stopped.", "info");
 			return;
 		}
+		case "name": {
+			await handleBrowserBridgeName(commandArgs, ctx);
+			return;
+		}
 		default:
-			throw new Error(`Unknown /browser-bridge command: ${args.trim()} (use status, start, or stop)`);
+			throw new Error(`Unknown /browser-bridge command: ${trimmed} (use status, start, stop, or name <名称>)`);
 	}
+}
+
+/**
+ * 命名浏览器插件会话：名称写入会话注册表并推送到扩展侧边栏头部，
+ * 侧边栏随后可用 /switch <名称> 切回该会话。
+ */
+async function handleBrowserBridgeName(name: string, ctx: ExtensionCommandContext) {
+	if (!name) {
+		ctx.ui.notify(
+			currentSessionName
+				? `Browser plugin session name: ${currentSessionName}`
+				: "Browser plugin session is unnamed. Use /browser-bridge name <名称> to name it.",
+			currentSessionName ? "info" : "warning",
+		);
+		return;
+	}
+	currentSessionName = name;
+	const file = ctx.sessionManager.getSessionFile();
+	if (file) {
+		await loadSessionRegistry();
+		sessionRegistry[name] = file;
+		await saveSessionRegistry();
+	}
+	pushBridgeEvent(sessionInfoEvent());
+	ctx.ui.notify(`Browser plugin session named「${name}」.`, "info");
 }

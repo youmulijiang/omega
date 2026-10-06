@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Omega Browser Bridge",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Bridge that lets the Omega agent control this Chrome profile (tabs, navigation, scripts, screenshots) over a local WebSocket.",
 	"minimum_chrome_version": "116",
 	"permissions": ["tabs", "scripting", "storage", "cookies", "sidePanel", "alarms"],
