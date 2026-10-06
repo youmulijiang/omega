@@ -11,6 +11,14 @@ import { OmegaMcpToolCache } from "../src/mcp/tool-cache.ts";
 const temporaryDirectories: string[] = [];
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-mcp-server.mjs");
 
+// Isolate the test from user-level MCP configs (~/.config/mcp/mcp.json and
+// ~/.omega/agent/mcp.json): loadMcpConfig merges them into every reload(), so
+// real servers on the host would be spawned and make these tests time out.
+const isolatedHome = mkdtempSync(join(tmpdir(), "omega-mcp-home-"));
+temporaryDirectories.push(isolatedHome);
+process.env.USERPROFILE = isolatedHome;
+process.env.HOME = isolatedHome;
+
 afterEach(async () => {
 	for (const directory of temporaryDirectories.splice(0)) {
 		// Windows keeps handles open briefly after a spawned MCP server exits;

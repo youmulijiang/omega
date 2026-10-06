@@ -10,6 +10,7 @@ import { registerFork } from "./fork/index.ts";
 import { registerGoal } from "./goal/index.ts";
 import { registerInit } from "./init/index.ts";
 import { registerMcp } from "./mcp/index.ts";
+import { registerSmithery } from "./mcp-smithery/index.ts";
 import registerMemory from "./memory/index.ts";
 import { registerPermissions } from "./permissions/index.ts";
 import { registerPrompts } from "./prompts/index.ts";
@@ -38,7 +39,15 @@ export default function omegaExtension(pi: ExtensionAPI): void {
 	registerFork(omega);
 	registerGoal(omega);
 	registerInit(omega);
-	registerMcp(omega);
+	// 上游内置 MCP（builtin:mcp，见 packages/coding-agent/src/extensions/mcp/）已接管 MCP 能力：
+	// /mcp 命令与 `pi mcp add|remove|login` CLI 均由上游提供。Omega 自带的 MCP 客户端
+	// （src/mcp）保留源码但默认不再注册；仅在显式设置 OMEGA_LEGACY_MCP=1（或 "true"）
+	// 时作为遗留开关重新启用，用于对照排查。
+	const legacyMcp = ["1", "true"].includes(process.env.OMEGA_LEGACY_MCP?.trim().toLowerCase() ?? "");
+	if (legacyMcp) registerMcp(omega);
+	// Smithery 搜索补回：上游内置 MCP 接管连接管理后，保留 Smithery 注册表的
+	// “搜索 + 添加”能力（复用 src/mcp 的 smithery 客户端，经 pi.registerMcpServer 注册）。
+	registerSmithery(omega);
 	registerMemory(omega);
 	registerPermissions(omega);
 	registerPrompts(omega);

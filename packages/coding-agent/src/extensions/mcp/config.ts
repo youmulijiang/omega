@@ -2,9 +2,10 @@
  * MCP server configuration.
  *
  * Servers are read from `mcp.json` in the agent directory and, for trusted projects, from
- * `<project>/.pi/mcp.json`. Both use the `mcpServers` shape shared by other MCP clients, so
- * existing configurations can be copied over. Project entries replace global entries with the
- * same name.
+ * `<project>/<CONFIG_DIR_NAME>/mcp.json` (`CONFIG_DIR_NAME` comes from the package's `piConfig`:
+ * `.pi` by default, `.omega` in this fork). Both use the `mcpServers` shape shared by other MCP
+ * clients, so existing configurations can be copied over. Project entries replace global entries
+ * with the same name.
  *
  * A project entry without `command`, `url`, or `type` overrides only `enabled`, `exposure`, and
  * `toolExposure` of the global server with the same name, for example to turn it off in one project:

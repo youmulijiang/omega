@@ -44,7 +44,6 @@ describe("omegaExtension", () => {
 				"http_replay",
 				"diff",
 				"knowledge_search",
-				"mcp",
 				"memory_write",
 				"scratchpad",
 				"memory_read",
@@ -55,7 +54,11 @@ describe("omegaExtension", () => {
 				"todo",
 			]),
 		);
+		// The omega legacy MCP client only registers behind OMEGA_LEGACY_MCP=1; the upstream
+		// builtin MCP (builtin:mcp) provides the "mcp" tool and /mcp command.
+		expect(tools).not.toContain("mcp");
 		expect(commands).toContain("btw");
+		expect(commands).toContain("smithery");
 		expect(commands).toContain("study");
 		expect(commands).toContain("study:list");
 		expect(commands).toContain("todos");
