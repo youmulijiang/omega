@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { OmegaAPI } from "../src/api.ts";
 import { type AgentConfig, discoverAgents } from "../src/subagents/agents.ts";
@@ -20,6 +20,7 @@ import {
 	DEFAULT_SUBAGENT_RUN_TIMEOUT_MS,
 	mapConcurrent,
 	processSubagentJsonLine,
+	type RunAgentOptions,
 	resolvePiSpawn,
 	resolveRunTimeoutMs,
 } from "../src/subagents/runner.ts";
@@ -186,31 +187,20 @@ describe("Omega subagent integration", () => {
 		);
 		expect(treeSelection).toBe(0);
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
+		// The transcript owns scrolling now; the remaining component contract is the frame plus footer.
 		expect(viewer.render(100).at(-1)).toContain("╰");
-		expect(
-			viewer.handleMouse({
-				type: "wheel",
-				button: "none",
-				x: 1,
-				y: 4,
-				screenX: 1,
-				screenY: 4,
-				width: 100,
-				height: 30,
-				shift: false,
-				alt: false,
-				ctrl: false,
-				wheelDelta: 3,
-			}),
-		).toEqual({ handled: true });
+		expect(viewer.render(100).join("\n")).toContain("next agent");
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
 		viewer.handleInput("tab");
 		expect(treeSelection).toBe(1);
 		expect(viewer.render(100).join("\n")).toContain("Verify the finding");
 		expect(viewer.render(100).join("\n")).toContain("verified final result");
+		// Thinking is visible by default, matching the main transcript's own default.
 		expect(viewer.render(100).join("\n")).toContain("private reasoning trace");
 		viewer.handleInput("ctrl+t");
 		expect(viewer.render(100).join("\n")).not.toContain("private reasoning trace");
+		viewer.handleInput("ctrl+t");
+		expect(viewer.render(100).join("\n")).toContain("private reasoning trace");
 		expect(viewer.render(100).join("\n")).toContain("verified final result");
 		viewer.handleInput("tab");
 		expect(viewer.render(100).join("\n")).toContain("Inspect authentication routes");
@@ -293,10 +283,257 @@ describe("Omega subagent integration", () => {
 			(taskId, prompt) => submitted.push({ taskId, prompt }),
 		);
 		for (const character of "继续检查授权边界") viewer.handleInput(character);
-		expect(viewer.render(240).join("\n")).toContain("return main & summarize");
+		expect(viewer.render(240).join("\n")).toContain("next agent");
 		viewer.handleInput("\r");
 		expect(submitted).toEqual([{ taskId: "subagent-7", prompt: "继续检查授权边界" }]);
 		viewer.dispose();
+	});
+
+	it("streams the in-flight assistant message in place instead of stacking placeholders", () => {
+		const tui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as never;
+		const keybindings = { matches: () => false, getKeys: () => [] } as never;
+		const result: SingleResult = {
+			callIndex: 0,
+			agent: "security-worker",
+			agentSource: "builtin",
+			prompt: "Inspect authentication routes",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+			liveContent: [{ type: "text", text: "partial" }],
+		};
+		const viewer = new SubagentConversationView(
+			() => [result],
+			tui,
+			theme,
+			keybindings,
+			() => undefined,
+			0,
+		);
+		const rendered = () => viewer.render(100).join("\n");
+		expect(rendered()).toContain("partial");
+		expect(rendered().match(/partial/gu)).toHaveLength(1);
+
+		// Deltas extend the same component: still exactly one copy of the growing text.
+		result.liveContent = [{ type: "text", text: "partial answer completed" }];
+		expect(rendered().match(/partial answer completed/gu)).toHaveLength(1);
+
+		// Once the message is captured, the live tail must not duplicate it.
+		result.messages = [
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "partial answer completed" }],
+				api: "anthropic-messages",
+				provider: "test",
+				model: "test",
+				usage: emptyUsage(),
+				stopReason: "stop",
+				timestamp: Date.now(),
+			},
+		];
+		result.liveContent = undefined;
+		expect(rendered().match(/partial answer completed/gu)).toHaveLength(1);
+		viewer.dispose();
+	});
+
+	it("keeps the newest transcript lines when the conversation outgrows the viewport", () => {
+		const tui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as never;
+		const keybindings = { matches: () => false, getKeys: () => [] } as never;
+		const messages = Array.from({ length: 40 }, (_, index) => ({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: `line ${index}` }],
+			api: "anthropic-messages" as const,
+			provider: "test",
+			model: "test",
+			usage: emptyUsage(),
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		}));
+		const result: SingleResult = {
+			callIndex: 0,
+			agent: "security-worker",
+			agentSource: "builtin",
+			prompt: "Long investigation",
+			initialContext: "empty",
+			exitCode: -1,
+			messages,
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		const viewer = new SubagentConversationView(
+			() => [result],
+			tui,
+			theme,
+			keybindings,
+			() => undefined,
+			0,
+		);
+		const lines = viewer.render(100);
+		expect(lines.join("\n")).not.toContain("line 0\n");
+		expect(lines.join("\n")).toContain("line 39");
+		viewer.dispose();
+	});
+
+	it("fits the frame inside the overlay height so the bottom border survives", () => {
+		const messages = Array.from({ length: 40 }, (_, index) => ({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: `line ${index}` }],
+			api: "anthropic-messages" as const,
+			provider: "test",
+			model: "test",
+			usage: emptyUsage(),
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		}));
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as never;
+		const keybindings = { matches: () => false, getKeys: () => [] } as never;
+
+		for (const rows of [40, 12]) {
+			const tui = { requestRender: () => undefined, terminal: { rows } } as never;
+			const result: SingleResult = {
+				callIndex: 0,
+				agent: "security-worker",
+				agentSource: "builtin",
+				prompt: "Long investigation",
+				initialContext: "empty",
+				exitCode: -1,
+				messages,
+				stderr: "",
+				usage: emptyUsage(),
+			};
+			const viewer = new SubagentConversationView(
+				() => [result],
+				tui,
+				theme,
+				keybindings,
+				() => undefined,
+				0,
+			);
+			const lines = viewer.render(100);
+			// The overlay keeps the first maxHeight rows, so an over-tall frame loses its bottom border.
+			const allotted = Math.max(1, Math.min(Math.floor(rows * 0.82), rows - 2));
+			expect(lines.length).toBeLessThanOrEqual(allotted);
+			expect(lines.at(-1)).toContain("╰");
+			expect(lines[0]).toContain("╭");
+			viewer.dispose();
+		}
+	});
+
+	it("drops a finished run's agents and releases keep-alive when the run ends", async () => {
+		const root = createTemporaryProject();
+		const settingsPath = path.join(root, "subagents.json");
+		writeSubagentSettings({ enabled: true }, settingsPath);
+
+		const keepAliveCalls: boolean[] = [];
+		const pendingRunCompletions: Array<() => void> = [];
+		const widgets = new Map<string, { render(width: number): string[] }>();
+		const fakeTui = { requestRender: () => undefined, terminal: { rows: 24 } } as never;
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as never;
+
+		let tool: { execute: (...args: never[]) => Promise<unknown> } | undefined;
+		const omega = {
+			registerFlag: () => undefined,
+			registerShortcut: () => undefined,
+			getFlag: () => undefined,
+			on: () => undefined,
+			sendMessage: () => undefined,
+			registerMessageRenderer: () => undefined,
+			registerCommand: () => undefined,
+			registerTool: (definition: { name: string }) => {
+				if (definition.name === "subagent") tool = definition as never;
+			},
+		} as unknown as OmegaAPI;
+
+		registerSubagents(omega, {
+			settingsPath,
+			runAgent: async (options: RunAgentOptions) => {
+				// Mirror the real runner: it reports its control channel once the child's RPC pipe is up.
+				// Deferring lets the run wire the task entry first, the way the process spawn does.
+				await new Promise((resolve) => setImmediate(resolve));
+				options.onControlReady?.({
+					sendPrompt: () => true,
+					setKeepAlive: (value: boolean) => keepAliveCalls.push(value),
+				});
+				await new Promise<void>((resolve) => pendingRunCompletions.push(resolve));
+				return {
+					taskId: options.taskId,
+					callIndex: options.callIndex,
+					agent: options.agentName,
+					agentSource: "builtin",
+					prompt: options.prompt,
+					initialContext: options.initialContext,
+					exitCode: 0,
+					messages: [
+						{
+							role: "assistant" as const,
+							content: [{ type: "text" as const, text: `${options.agentName} finished` }],
+							api: "anthropic-messages" as const,
+							provider: "test",
+							model: "test",
+							usage: emptyUsage(),
+							stopReason: "stop" as const,
+							timestamp: Date.now(),
+						},
+					],
+					stderr: "",
+					usage: emptyUsage(),
+					sawAgentStart: true,
+					sawAgentEnd: true,
+					sawAgentSettled: true,
+					runtimeState: "idle" as const,
+				};
+			},
+		});
+
+		const ctx = {
+			cwd: root,
+			model: undefined,
+			isProjectTrusted: () => true,
+			sessionManager: { getSessionId: () => "parent-session", usesDefaultSessionDir: () => true },
+			ui: {
+				theme,
+				setWidget: (name: string, factory: unknown) => {
+					if (typeof factory === "function") {
+						widgets.set(name, (factory as (tui: unknown, theme: unknown) => { render(width: number): string[] })(fakeTui, theme));
+					}
+				},
+				setEditorComponent: () => undefined,
+				getEditorComponent: () => undefined,
+				setStatus: () => undefined,
+				notify: () => undefined,
+			},
+		} as unknown as ExtensionContext;
+
+		const panel = () => widgets.get("omega.subagents.agents")?.render(200).join("\n") ?? "";
+		const runCall = (prompt: string) =>
+			tool!.execute("call-id", { calls: [{ agent: "explore", prompt, initialContext: "empty" }] }, undefined, () => undefined, ctx);
+		const settleBackgroundRun = async () => {
+			for (let tick = 0; tick < 8; tick++) await new Promise((resolve) => setImmediate(resolve));
+		};
+
+		await runCall("first task");
+		await settleBackgroundRun();
+		expect(panel()).toContain("first task");
+		pendingRunCompletions.shift()!();
+		await settleBackgroundRun();
+		expect(panel()).toBe("");
+		// The run must release keep-alive before deleting the task entry, otherwise the idle child
+		// process outlives the run with no handle left that could ever close it.
+		expect(keepAliveCalls.filter((value) => value === false).length).toBeGreaterThan(1);
+
+		await runCall("second task");
+		await settleBackgroundRun();
+		const after = panel();
+		expect(after).toContain("second task");
+		// The finished agent from the previous run must not be re-rendered next to this run's calls.
+		expect(after).not.toContain("first task");
+		pendingRunCompletions.shift()!();
+		await settleBackgroundRun();
+		expect(panel()).toBe("");
 	});
 
 	it("follows the newest output until the user scrolls back", () => {
@@ -347,6 +584,27 @@ describe("Omega subagent integration", () => {
 		for (let index = 0; index < 5; index++) viewer.handleInput("pgdn");
 		expect(has("MARK-19")).toBe(true);
 		viewer.dispose();
+	});
+
+
+	it("keeps a settled turn deliverable after its runtime closes", () => {
+		const base: SingleResult = {
+			agent: "worker",
+			agentSource: "builtin",
+			prompt: "Long run",
+			initialContext: "empty",
+			exitCode: -1,
+			messages: [],
+			stderr: "",
+			usage: emptyUsage(),
+		};
+		const taskId = "subagent-1";
+
+		expect(isSettledTurnResult({ ...base, taskId })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "running", sawAgentSettled: true })).toBe(false);
+		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "idle", sawAgentSettled: true })).toBe(true);
+		// Process exit clears runtimeState and sets exitCode; the hand-back must survive both.
+		expect(isSettledTurnResult({ ...base, taskId, exitCode: 0, sawAgentSettled: true })).toBe(true);
 	});
 
 	it("registers flags, lifecycle handlers, the tool, and the discovery command", () => {
@@ -571,26 +829,6 @@ describe("Omega subagent integration", () => {
 		processSubagentJsonLine(JSON.stringify({ type: "agent_end", messages: [message] }), result);
 		expect(result.structuredOutput).toEqual({ verdict: "confirmed" });
 		expect(isResultSuccess(result)).toBe(true);
-	});
-
-	it("keeps a settled turn deliverable after its runtime closes", () => {
-		const base: SingleResult = {
-			agent: "worker",
-			agentSource: "builtin",
-			prompt: "Long run",
-			initialContext: "empty",
-			exitCode: -1,
-			messages: [],
-			stderr: "",
-			usage: emptyUsage(),
-		};
-		const taskId = "subagent-1";
-
-		expect(isSettledTurnResult({ ...base, taskId })).toBe(false);
-		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "running", sawAgentSettled: true })).toBe(false);
-		expect(isSettledTurnResult({ ...base, taskId, runtimeState: "idle", sawAgentSettled: true })).toBe(true);
-		// Process exit clears runtimeState and sets exitCode; the hand-back must survive both.
-		expect(isSettledTurnResult({ ...base, taskId, exitCode: 0, sawAgentSettled: true })).toBe(true);
 	});
 
 	it("assembles assistant streaming deltas for the runtime TUI", () => {
