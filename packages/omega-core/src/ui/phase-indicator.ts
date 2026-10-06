@@ -22,10 +22,12 @@ const PHASE_LABELS: Record<OmegaPhase, string> = {
 export class PhaseIndicator implements Component {
 	private phase: OmegaPhase;
 	private readonly theme: Theme;
+	private readonly showPhase: boolean;
 
-	constructor(theme: Theme, phase: OmegaPhase = "recon") {
+	constructor(theme: Theme, phase: OmegaPhase = "recon", showPhase = false) {
 		this.theme = theme;
 		this.phase = phase;
+		this.showPhase = showPhase;
 	}
 
 	/**
@@ -47,7 +49,7 @@ export class PhaseIndicator implements Component {
 	render(width: number): string[] {
 		const accent = (t: string) => this.theme.fg("accent", t);
 		const dim = (t: string) => this.theme.fg("dim", t);
-		const line = `${dim("OMEGA")} ${accent("▸")} ${accent(PHASE_LABELS[this.phase])}`;
+		const line = this.showPhase ? `${dim("OMEGA")} ${accent("▸")} ${accent(PHASE_LABELS[this.phase])}` : dim("OMEGA");
 		return [truncateToWidth(line, width)];
 	}
 
