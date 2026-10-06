@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon/omega.png" alt="OMEGA" width="150" />
+  <img src="icon/omega1.png" alt="OMEGA" width="150" />
 </p>
 
 <h1 align="center">OMEGA</h1>
