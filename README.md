@@ -110,6 +110,8 @@ Both launchers point `OMEGA_CODING_AGENT_DIR` at the repo-local `.omega/agent`, 
 
 The scripts run the CLI through `tsx`, so no build step is needed to exercise source changes. Windows users can also invoke `omega-test.ps1` directly.
 
+The sidebar globe uses Unicode Braille dots on recognized modern terminals or UTF-8 locales, and falls back to ASCII for legacy, non-UTF-8, or unknown environments. Set `OMEGA_GLOBE_RENDERER=ascii` or `braille` before launch to override selection. Font glyph coverage cannot be detected reliably; force ASCII if dots appear as boxes or misalign. In PowerShell: `$env:OMEGA_GLOBE_RENDERER = "ascii"`.
+
 ## Commands
 
 ### Security workflow
@@ -128,10 +130,10 @@ The scripts run the CLI through `tsx`, so no build step is needed to exercise so
 | Command | Description |
 | --- | --- |
 | `/bg [--agent] [--name "Task"] <cmd>` | Start a shell command as a tracked background task |
-| `/tasks`, `/jobs` | Open the background task manager UI; list running and recent tasks |
-| `/logs <id> [maxBytes]` | Show bounded output from a background task |
-| `/kill <id>` | Stop a running background task |
-| `/fusion` | Start a fixed-purpose Fusion reason in the background and return immediately |
+| `/bg:tasks`, `/bg:jobs` | Open the background task manager UI; list running and recent tasks |
+| `/bg:logs <id> [maxBytes]` | Show bounded output from a background task |
+| `/bg:kill <id>` | Stop a running background task |
+| `/bg:fusion` | Start a fixed-purpose Fusion reason in the background and return immediately |
 | `/fork:task` | Run a focused task in an isolated Omega child process |
 | `/subagent:list` | List the available Omega subagents |
 | `/subagents:send <id> <msg>` | Send a coordination message to a running subagent |

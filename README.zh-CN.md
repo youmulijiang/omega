@@ -110,6 +110,8 @@ npm install --ignore-scripts
 
 脚本通过 `tsx` 直接运行 CLI,因此修改源码后无需构建即可验证。Windows 下也可直接运行 `omega-test.ps1`。
 
+侧边栏地球在识别到现代终端或 UTF-8 环境时使用 Unicode Braille 点阵，在旧终端、非 UTF-8 或无法识别的环境中降级为 ASCII。启动前可设置 `OMEGA_GLOBE_RENDERER=ascii` 或 `braille` 强制选择。字体是否缺字无法可靠检测；若点阵显示成方框或错位，请强制使用 ASCII。PowerShell 示例：`$env:OMEGA_GLOBE_RENDERER = "ascii"`。
+
 ## 命令
 
 ### 安全工作流
@@ -128,10 +130,10 @@ npm install --ignore-scripts
 | 命令 | 说明 |
 | --- | --- |
 | `/bg [--agent] [--name "任务名"] <命令>` | 以受跟踪的后台任务方式启动 shell 命令 |
-| `/tasks`、`/jobs` | 打开后台任务管理器 UI;列出运行中与近期任务 |
-| `/logs <id> [maxBytes]` | 查看后台任务的有界输出 |
-| `/kill <id>` | 终止正在运行的后台任务 |
-| `/fusion` | 在后台启动固定用途的 Fusion 推理并立即返回 |
+| `/bg:tasks`、`/bg:jobs` | 打开后台任务管理器 UI;列出运行中与近期任务 |
+| `/bg:logs <id> [maxBytes]` | 查看后台任务的有界输出 |
+| `/bg:kill <id>` | 终止正在运行的后台任务 |
+| `/bg:fusion` | 在后台启动固定用途的 Fusion 推理并立即返回 |
 | `/fork:task` | 在独立的 Omega 子进程中执行聚焦任务 |
 | `/subagent:list` | 列出当前可用的 Omega 子代理 |
 | `/subagents:send <id> <消息>` | 向运行中的子代理发送协调消息 |
