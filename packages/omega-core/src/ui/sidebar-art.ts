@@ -151,32 +151,89 @@ export function visibleGlobeLabels(rotation: number): string[] {
 	}).map((continent) => continent.id);
 }
 
-/** Render a terminal-aspect-corrected orthographic globe. */
-export function renderAsciiGlobe(width: number, height: number, timeMs: number): string[] {
+export type GlobeRenderer = "ascii" | "braille";
+
+/** Font coverage cannot be queried reliably; allow an explicit override. */
+export function resolveGlobeRenderer(
+	env: Readonly<Record<string, string | undefined>> = process.env,
+	platform: string = process.platform,
+): GlobeRenderer {
+	const override = env.OMEGA_GLOBE_RENDERER?.toLowerCase();
+	if (override === "ascii" || override === "braille") return override;
+	if (/^(dumb|linux|cons25|vt100|ansi)$/i.test(env.TERM ?? "")) return "ascii";
+	const locale = env.LC_ALL || env.LC_CTYPE || env.LANG;
+	if (platform !== "win32" && locale && !/utf-?8/i.test(locale)) return "ascii";
+	if (env.WT_SESSION || env.TERM_PROGRAM || env.KITTY_WINDOW_ID || env.WEZTERM_PANE) return "braille";
+	if (locale && /utf-?8/i.test(locale)) return "braille";
+	return "ascii";
+}
+
+const AXIS_TILT = 23.4 * DEG_TO_RAD;
+const TILT_COS = Math.cos(AXIS_TILT);
+const TILT_SIN = Math.sin(AXIS_TILT);
+const BRAILLE_BITS = [
+	[1, 8],
+	[2, 16],
+	[4, 32],
+	[64, 128],
+] as const;
+// Screen-anchored ordered dithering keeps shading stable while the surface rotates.
+const DITHER = [
+	[0, 8, 2, 10],
+	[12, 4, 14, 6],
+	[3, 11, 1, 9],
+	[15, 7, 13, 5],
+] as const;
+
+function globeBrightness(nx: number, ny: number, rotation: number): number {
+	const radiusSquared = nx * nx + ny * ny;
+	if (radiusSquared > 1) return 0;
+	const nz = Math.sqrt(1 - radiusSquared);
+	const sphereX = nx * TILT_COS + ny * TILT_SIN;
+	const sphereY = -nx * TILT_SIN + ny * TILT_COS;
+	const lat = Math.asin(Math.max(-1, Math.min(1, sphereY))) / DEG_TO_RAD;
+	const lon = normalizeLongitude((Math.atan2(sphereX, nz) + rotation) / DEG_TO_RAD);
+	const land = continentAt(lon, lat) !== undefined;
+	const diffuse = Math.max(0, -nx * 0.55 + ny * 0.45 + nz * 0.7);
+	const surface = land ? 0.2 + diffuse * 0.72 : 0.05 + diffuse * 0.28;
+	const atmosphere = 0.18 * (1 - nz) ** 8;
+	return Math.min(0.999, surface + atmosphere);
+}
+
+/** Orthographic sphere with tilted geography, fixed lighting and 2x4 dot sampling. */
+export function renderGlobe(
+	width: number,
+	height: number,
+	timeMs: number,
+	renderer: GlobeRenderer = resolveGlobeRenderer(),
+): string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
 	const safeHeight = Math.max(1, Math.floor(height));
 	const grid = createGrid(safeWidth, safeHeight);
-	const radiusY = Math.max(1, (safeHeight - 1) / 2);
-	const radiusX = Math.max(1, Math.min((safeWidth - 1) / 2, radiusY * 2));
-	const centerX = (safeWidth - 1) / 2;
-	const centerY = (safeHeight - 1) / 2;
+	const radiusY = Math.max(0.25, Math.min((safeHeight - 0.5) / 2, (safeWidth - 0.5) / 4));
+	const radiusX = radiusY * 2;
+	const centerX = safeWidth / 2;
+	const centerY = safeHeight / 2;
 	const rotation = globeRotation(timeMs);
-	const oceanRamp = "..::";
-	const landRamp = ":+*#";
+	const ramp = " .:-=+*#%@";
 
 	for (let y = 0; y < safeHeight; y++) {
 		for (let x = 0; x < safeWidth; x++) {
-			const nx = (x - centerX) / radiusX;
-			const ny = (centerY - y) / radiusY;
-			const radiusSquared = nx * nx + ny * ny;
-			if (radiusSquared > 1) continue;
-
-			const nz = Math.sqrt(Math.max(0, 1 - radiusSquared));
-			const lat = Math.asin(ny) / DEG_TO_RAD;
-			const lon = normalizeLongitude((Math.atan2(nx, nz) + rotation) / DEG_TO_RAD);
-			const light = Math.max(0, Math.min(0.999, (nz * 0.72 - nx * 0.18 + ny * 0.1 + 1) / 2));
-			const ramp = continentAt(lon, lat) ? landRamp : oceanRamp;
-			grid[y]![x] = radiusSquared > 0.92 ? "o" : ramp[Math.floor(light * ramp.length)]!;
+			if (renderer === "ascii") {
+				const brightness = globeBrightness((x + 0.5 - centerX) / radiusX, (centerY - y - 0.5) / radiusY, rotation);
+				grid[y]![x] = ramp[Math.floor(brightness * ramp.length)]!;
+				continue;
+			}
+			let dots = 0;
+			for (let dy = 0; dy < 4; dy++) {
+				for (let dx = 0; dx < 2; dx++) {
+					const nx = (x + (dx + 0.5) / 2 - centerX) / radiusX;
+					const ny = (centerY - y - (dy + 0.5) / 4) / radiusY;
+					const threshold = (DITHER[dy]![(x * 2 + dx) % 4]! + 0.5) / 16;
+					if (globeBrightness(nx, ny, rotation) > threshold) dots |= BRAILLE_BITS[dy]![dx]!;
+				}
+			}
+			grid[y]![x] = dots === 0 ? " " : String.fromCharCode(0x2800 + dots);
 		}
 	}
 
@@ -184,13 +241,29 @@ export function renderAsciiGlobe(width: number, height: number, timeMs: number):
 		const latitude = continent.label.lat * DEG_TO_RAD;
 		const relativeLongitude = normalizeLongitude(continent.label.lon - rotation / DEG_TO_RAD) * DEG_TO_RAD;
 		const visibility = Math.cos(latitude) * Math.cos(relativeLongitude);
-		if (visibility <= 0.12) continue;
-		const x = centerX + radiusX * Math.cos(latitude) * Math.sin(relativeLongitude);
-		const y = centerY - radiusY * Math.sin(latitude);
-		writeLabel(grid, x, y, continent.id);
+		if (visibility <= 0.35 || safeWidth < 12 || safeHeight < 5) continue;
+		const sphereX = Math.cos(latitude) * Math.sin(relativeLongitude);
+		const sphereY = Math.sin(latitude);
+		const x = centerX + radiusX * (sphereX * TILT_COS - sphereY * TILT_SIN) - 0.5;
+		const y = centerY - radiusY * (sphereX * TILT_SIN + sphereY * TILT_COS) - 0.5;
+		const row = Math.round(y);
+		const start = Math.round(x - continent.id.length / 2);
+		// Do not stamp a label across the limb or into blank space outside the sphere.
+		if (
+			Array.from(continent.id).every((_, index) => {
+				const nx = (start + index + 0.5 - centerX) / radiusX;
+				const ny = (centerY - row - 0.5) / radiusY;
+				return nx * nx + ny * ny < 0.9;
+			})
+		)
+			writeLabel(grid, x, y, continent.id);
 	}
 
 	return gridLines(grid);
+}
+
+export function renderAsciiGlobe(width: number, height: number, timeMs: number): string[] {
+	return renderGlobe(width, height, timeMs, "ascii");
 }
 
 interface MapNode extends GeoPoint {

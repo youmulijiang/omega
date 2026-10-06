@@ -24,7 +24,13 @@ export type { OmegaPhase } from "./phase-indicator.ts";
 export { PhaseIndicator } from "./phase-indicator.ts";
 export { PixelSpinnerStatus, type PixelSpinnerStatusOptions } from "./pixel-spinner.ts";
 export { OmegaSidebar, type SidebarArtMode, type SidebarTab, setupSidebar } from "./sidebar.ts";
-export { renderAsciiGlobe, renderAttackMap, SIDEBAR_CONTINENTS } from "./sidebar-art.ts";
+export {
+	renderAsciiGlobe,
+	renderAttackMap,
+	renderGlobe,
+	resolveGlobeRenderer,
+	SIDEBAR_CONTINENTS,
+} from "./sidebar-art.ts";
 export { setupStatus } from "./status.ts";
 export { setupToolbox } from "./toolbox.ts";
 export { loadToolboxConfig, type ToolboxConfig } from "./toolbox-config.ts";

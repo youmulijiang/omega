@@ -27,7 +27,7 @@ import type { SingleResult, SubagentDetails } from "../subagents/types.ts";
 import { TODO_STATE_ENTRY } from "../todo/index.ts";
 import { cloneTodoState, createTodoState, isTodoState } from "../todo/state.ts";
 import type { TodoState } from "../todo/types.ts";
-import { renderAsciiGlobe, renderAttackMap, renderTerminalScene } from "./sidebar-art.ts";
+import { renderAttackMap, renderGlobe, renderTerminalScene } from "./sidebar-art.ts";
 
 export type SidebarTab = "status" | "tasks" | "system";
 export type SidebarArtMode = "auto" | "globe" | "attack" | "terminal";
@@ -577,13 +577,12 @@ export class OmegaSidebar implements Component {
 		const art = !this.artExpanded
 			? []
 			: effectiveMode === "globe"
-				? renderAsciiGlobe(innerWidth, artHeight, now)
+				? renderGlobe(innerWidth, artHeight, now)
 				: effectiveMode === "attack"
 					? renderAttackMap(innerWidth, artHeight, now)
 					: renderTerminalScene(innerWidth, artHeight, now);
 		for (const line of art) {
-			const colored =
-				effectiveMode === "terminal" ? line : this.theme.fg(effectiveMode === "globe" ? "dim" : "accent", line);
+			const colored = effectiveMode === "terminal" ? line : this.theme.fg("accent", line);
 			lines.push(this.framed(colored, safeWidth));
 		}
 		return lines.slice(0, height);
