@@ -8,6 +8,7 @@ import {
 	reconcileInactiveGoalContextContract,
 } from "./goal-contract.ts";
 import { type ActiveGoal, loadGoalStateFromSession } from "./persistence.ts";
+import { adoptGoalPlan, advanceGoalPlan, assistantTextOf } from "./plan-superset.ts";
 import type { GoalRunController } from "./run-protocol.ts";
 import {
 	type AssistantMessageLike,
@@ -26,7 +27,6 @@ import {
 	truncateNotification,
 } from "./runtime.ts";
 import { hasAssistantToolCall } from "./safety.ts";
-import { advanceGoalPlan, adoptGoalPlan, assistantTextOf } from "./plan-superset.ts";
 import { DEFAULT_GOAL_SETTINGS, readGoalSettings } from "./settings.ts";
 
 const REMOVED_QUEUE_SETTING_WARNING =
@@ -473,7 +473,12 @@ export function registerGoalLifecycle(
 		if (
 			runtime.activeGoal.status === "active" &&
 			runtime.ownsWorkflow(runtime.activeGoal) &&
-			advanceGoalPlan(pi, ctx, runtime.activeGoal, assistantTextOf(event.message as { role?: unknown; content?: unknown }))
+			advanceGoalPlan(
+				pi,
+				ctx,
+				runtime.activeGoal,
+				assistantTextOf(event.message as { role?: unknown; content?: unknown }),
+			)
 		) {
 			runtime.persistGoal(runtime.activeGoal);
 			runtime.updateStatus(ctx, runtime.activeGoal);

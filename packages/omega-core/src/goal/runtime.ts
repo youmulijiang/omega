@@ -15,8 +15,8 @@ import {
 	clearLegacyPersistedGoal,
 	type LegacyQueueState,
 	type SafetyPauseCause,
-	type VerificationRejection,
 	serializeGoalState,
+	type VerificationRejection,
 } from "./persistence.ts";
 import { buildContinuePrompt, type GoalStatus } from "./prompts.ts";
 import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.ts";

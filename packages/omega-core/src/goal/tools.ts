@@ -24,11 +24,11 @@ import {
 	truncateNotification,
 } from "./runtime.ts";
 import {
+	buildVerificationPrompt,
 	createGoalVerifier,
 	type GoalVerificationResult,
 	type SkepticRunner,
 	VerificationUnavailableError,
-	buildVerificationPrompt,
 } from "./verifier.ts";
 import {
 	createGoalWait,

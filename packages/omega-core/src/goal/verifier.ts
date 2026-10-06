@@ -14,15 +14,18 @@
  */
 
 import { Type } from "typebox";
-import { ProcessSubagentRuntime } from "../subagents/runtime.ts";
 import type { ParentModel } from "../subagents/runner.ts";
+import { ProcessSubagentRuntime } from "../subagents/runtime.ts";
 import type { ActiveGoal, VerificationRejection } from "./persistence.ts";
 
 export const GOAL_VERIFICATION_SCHEMA = Type.Object({
-	verdict: Type.Union([Type.Literal("achieved"), Type.Literal("not_achieved"), Type.Literal("insufficient_evidence")], {
-		description:
-			"achieved: every requirement is proven by evidence you independently inspected. not_achieved: you found concrete unmet requirements or contradictions. insufficient_evidence: requirements cannot be judged from available evidence.",
-	}),
+	verdict: Type.Union(
+		[Type.Literal("achieved"), Type.Literal("not_achieved"), Type.Literal("insufficient_evidence")],
+		{
+			description:
+				"achieved: every requirement is proven by evidence you independently inspected. not_achieved: you found concrete unmet requirements or contradictions. insufficient_evidence: requirements cannot be judged from available evidence.",
+		},
+	),
 	summary: Type.String({ description: "One-paragraph judgment of the completion claim." }),
 	missingEvidence: Type.Array(
 		Type.String({ description: "One concrete missing requirement, gap, or contradiction per item." }),
