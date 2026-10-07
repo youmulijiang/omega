@@ -1,6 +1,6 @@
 import type { ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI, TuiMouseEvent } from "@earendil-works/pi-tui";
-import { getKeybindings, setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
+import { getKeybindings, parseColor, setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../../coding-agent/src/core/keybindings.ts";
 import type { OmegaAPI } from "../src/api.ts";
@@ -9,6 +9,8 @@ import { OmegaSidebar, setupSidebar, sidebarWidthForTerminal } from "../src/ui/s
 import { renderAsciiGlobe, renderAttackMap, renderTerminalScene, SIDEBAR_CONTINENTS, visibleGlobeLabels } from "../src/ui/sidebar-art.ts";
 
 const plainTheme = {
+	colors: { accent: parseColor("#00d7af") },
+	getColorMode: () => "truecolor",
 	fg: (_color: string, value: string) => value,
 	bold: (value: string) => value,
 } as Theme;
@@ -250,6 +252,9 @@ describe("Omega sidebar", () => {
 			sidebar.handleInput("\t");
 			expect(sidebar.getArtMode()).toBe("terminal");
 			expect(sidebar.render(44).join("\n")).toContain("TERMINAL SIM");
+			sidebar.handleInput("\t");
+			expect(sidebar.getArtMode()).toBe("skull");
+			expect(sidebar.render(44).join("\n")).toContain("SKULL");
 			sidebar.switchPanel();
 			expect(sidebar.getActivePanel()).toBe("tabs");
 			sidebar.handleInput("\x1b");
@@ -475,6 +480,8 @@ describe("Omega sidebar", () => {
 			expect(sidebar.render(44).join("\n")).toContain("SIMULATION");
 			sidebar.cycleArtMode();
 			sidebar.finishTool("call-1");
+			// Two more hops land back on "auto": terminal -> skull -> auto, which renders the idle globe.
+			sidebar.cycleArtMode();
 			sidebar.cycleArtMode();
 			expect(sidebar.render(44).join("\n")).toContain("GLOBE");
 			fixture.advance(600);

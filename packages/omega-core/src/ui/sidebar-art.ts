@@ -206,6 +206,7 @@ export function renderGlobe(
 	height: number,
 	timeMs: number,
 	renderer: GlobeRenderer = resolveGlobeRenderer(),
+	palette?: readonly string[],
 ): string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
 	const safeHeight = Math.max(1, Math.floor(height));
@@ -259,7 +260,28 @@ export function renderGlobe(
 			writeLabel(grid, x, y, continent.id);
 	}
 
-	return gridLines(grid);
+	if (!palette?.length) return gridLines(grid);
+	return grid.map((row, y) => {
+		let line = "";
+		let previousShade = -1;
+		for (let x = 0; x < row.length; x++) {
+			const glyph = row[x]!;
+			if (glyph !== " ") {
+				const nx = (x + 0.5 - centerX) / radiusX;
+				const ny = (centerY - y - 0.5) / radiusY;
+				const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+				const diffuse = Math.max(0, -nx * 0.55 + ny * 0.45 + nz * 0.7);
+				// Blinn highlight: the half-vector of the light and the viewer stays fixed as land rotates.
+				const specular = Math.max(0, -nx * 0.299 + ny * 0.244 + nz * 0.922) ** 24;
+				const light = Math.min(1, 0.08 + diffuse * 0.7 + specular * 0.35);
+				const shade = Math.round(light * (palette.length - 1));
+				if (shade !== previousShade) line += palette[shade]!;
+				previousShade = shade;
+			}
+			line += glyph;
+		}
+		return previousShade < 0 ? line : `${line}\x1b[39m`;
+	});
 }
 
 export function renderAsciiGlobe(width: number, height: number, timeMs: number): string[] {
@@ -418,4 +440,115 @@ export function renderTerminalScene(width: number, height: number, timeMs: numbe
 		}
 		return value.slice(0, safeWidth).padEnd(safeWidth, " ");
 	});
+}
+
+// --- Skull ---
+
+const SKULL_RAMP = " .:-=+*#%@";
+const SKULL_BOB_PERIOD_MS = 6_400;
+const SKULL_JAW_PERIOD_MS = 5_200;
+const SKULL_EMBER_PERIOD_MS = 1_100;
+
+/** Signed-ish ellipse field: 1 at the center, 0 on the rim, negative outside. */
+function skullEllipseField(x: number, y: number, radiusX: number, radiusY: number): number {
+	const dx = x / radiusX;
+	const dy = y / radiusY;
+	return 1 - Math.sqrt(dx * dx + dy * dy);
+}
+
+function skullMottle(cellX: number, cellY: number): number {
+	const noise = nextNoise((Math.imul(cellX + 1, 0x27d4eb2d) ^ Math.imul(cellY + 1, 0x165667b1)) >>> 0);
+	return ((noise >>> 24) / 255 - 0.5) * 0.12;
+}
+
+/**
+ * Bone density for one cell: SDF-composed cranium, face and jaw with carved sockets and nasal
+ * cavity, lambert shading from the dominant shape's pseudo-normal, and a density ramp standing in
+ * for highlight and shadow. Eye embers flicker out of phase and the jaw slowly chatters.
+ * Returns 0 for empty space.
+ */
+export function skullBrightness(nx: number, ny: number, cellX: number, cellY: number, timeMs: number): number {
+	const bob = Math.sin((timeMs / SKULL_BOB_PERIOD_MS) * TAU) * 0.03;
+	const jawDrop = 0.05 + 0.09 * (0.5 + 0.5 * Math.sin((timeMs / SKULL_JAW_PERIOD_MS) * TAU));
+	const y = ny - bob;
+
+	const cranium = skullEllipseField(nx, y - 0.26, 0.94, 0.7);
+	const face = skullEllipseField(nx, y + 0.2, 0.7, 0.44);
+	const jaw = skullEllipseField(nx, y + 0.68 + jawDrop, 0.46, 0.36);
+	const boneField = Math.max(cranium, Math.max(face, jaw));
+	if (boneField <= 0) return 0;
+
+	// Eye sockets: mirrored through Math.abs(nx). Deep void with a flickering ember at the bottom.
+	const socket = skullEllipseField(Math.abs(nx) - 0.34, y - 0.02, 0.24, 0.2);
+	if (socket > 0) {
+		const phase = nx < 0 ? 0 : 1.7;
+		const flicker = Math.max(0, Math.sin((timeMs / SKULL_EMBER_PERIOD_MS) * TAU + phase)) ** 6;
+		const ember = Math.max(0, skullEllipseField(Math.abs(nx) - 0.34, y - 0.11, 0.11, 0.08));
+		return Math.min(0.99, 0.03 + ember * flicker * 0.9);
+	}
+
+	// Nasal cavity.
+	if (skullEllipseField(nx, y + 0.3, 0.09, 0.17) > 0) return 0.04;
+
+	// Teeth: bright enamel columns separated by dark grooves; upper set fixed, lower set rides the jaw.
+	const upperTeeth = y > -0.52 && y < -0.3 && Math.abs(nx) < 0.3 && face > 0.15;
+	const lowerTeeth = jaw > 0.25 && y < -0.46 + jawDrop && y > -0.7 && Math.abs(nx) < 0.3;
+	if (upperTeeth || lowerTeeth) {
+		const groove = Math.sin((Math.abs(nx) + (upperTeeth ? 0.22 : 0.36)) * 26) > 0;
+		return groove ? 0.16 : 0.96;
+	}
+
+	// Lambert shading from the union field's outward gradient; light sits upper-left.
+	let normalX = 0;
+	let normalY = 0;
+	for (const [shapeY, shapeRX, shapeRY] of [
+		[0.26, 0.94, 0.7],
+		[-0.2, 0.7, 0.44],
+		[-0.68 - jawDrop, 0.46, 0.36],
+	] as const) {
+		normalX -=
+			skullEllipseField(nx + 0.02, y - shapeY, shapeRX, shapeRY) -
+			skullEllipseField(nx - 0.02, y - shapeY, shapeRX, shapeRY);
+		normalY -=
+			skullEllipseField(nx, y + 0.02 - shapeY, shapeRX, shapeRY) -
+			skullEllipseField(nx, y - 0.02 - shapeY, shapeRX, shapeRY);
+	}
+	const normalLength = Math.hypot(normalX, normalY) || 1;
+	normalX /= normalLength;
+	normalY /= normalLength;
+	const diffuse = Math.max(0, normalX * -0.48 + normalY * 0.62);
+
+	// The jaw sits in the skull's shadow; scale down its lambert term so it reads darker than the cranium.
+	const jawDominant = jaw >= cranium && jaw >= face;
+	const lit = jawDominant ? diffuse * 0.55 : diffuse;
+
+	// Brow ridge and cheekbones catch extra light; temples fall into shadow.
+	const brow = Math.max(0, skullEllipseField(Math.abs(nx) - 0.34, y + 0.22, 0.28, 0.09));
+	const cheekbone = Math.max(0, skullEllipseField(Math.abs(nx) - 0.58, y - 0.14, 0.15, 0.1));
+	const temple = Math.max(0, skullEllipseField(Math.abs(nx) - 0.74, y + 0.3, 0.2, 0.25));
+	const rim = Math.max(0, 0.5 - boneField);
+
+	const brightness =
+		0.14 + 0.62 * lit + brow * 0.28 + cheekbone * 0.22 - temple * 0.18 - rim * 0.8 + skullMottle(cellX, cellY);
+	return Math.max(0.08, Math.min(0.99, brightness));
+}
+
+/** Dynamic skull: density-ramp bone shading, ember-lit sockets, slow jaw chatter and bob. */
+export function renderSkull(width: number, height: number, timeMs: number): string[] {
+	const safeWidth = Math.max(1, Math.floor(width));
+	const safeHeight = Math.max(1, Math.floor(height));
+	const grid = createGrid(safeWidth, safeHeight);
+	const radiusY = Math.max(0.25, Math.min((safeHeight - 0.5) / 2.3, (safeWidth - 0.5) / 3.4));
+	const radiusX = radiusY * 1.7;
+	const centerX = safeWidth / 2;
+	const centerY = safeHeight / 2;
+	for (let y = 0; y < safeHeight; y++) {
+		for (let x = 0; x < safeWidth; x++) {
+			const brightness = skullBrightness((x + 0.5 - centerX) / radiusX, (centerY - y - 0.5) / radiusY, x, y, timeMs);
+			if (brightness > 0) {
+				grid[y]![x] = SKULL_RAMP[Math.min(SKULL_RAMP.length - 1, Math.floor(brightness * SKULL_RAMP.length))]!;
+			}
+		}
+	}
+	return gridLines(grid);
 }

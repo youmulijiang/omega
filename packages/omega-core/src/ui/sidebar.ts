@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
+	foregroundAnsi,
 	getKeybindings,
+	mixColors,
+	rgbColor,
 	type TUI,
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
@@ -27,10 +30,10 @@ import type { SingleResult, SubagentDetails } from "../subagents/types.ts";
 import { TODO_STATE_ENTRY } from "../todo/index.ts";
 import { cloneTodoState, createTodoState, isTodoState } from "../todo/state.ts";
 import type { TodoState } from "../todo/types.ts";
-import { renderAttackMap, renderGlobe, renderTerminalScene } from "./sidebar-art.ts";
+import { renderAttackMap, renderGlobe, renderSkull, renderTerminalScene } from "./sidebar-art.ts";
 
 export type SidebarTab = "status" | "tasks" | "system";
-export type SidebarArtMode = "auto" | "globe" | "attack" | "terminal";
+export type SidebarArtMode = "auto" | "globe" | "attack" | "skull" | "terminal";
 export type SidebarPanel = "tabs" | "art";
 
 interface ActiveTool {
@@ -265,7 +268,7 @@ export class OmegaSidebar implements Component {
 	}
 
 	cycleArtMode(): void {
-		const modes: readonly SidebarArtMode[] = ["auto", "globe", "attack", "terminal"];
+		const modes: readonly SidebarArtMode[] = ["auto", "globe", "attack", "terminal", "skull"];
 		this.artMode = modes[(modes.indexOf(this.artMode) + 1) % modes.length]!;
 		this.tui.requestRender();
 	}
@@ -558,7 +561,7 @@ export class OmegaSidebar implements Component {
 
 		const effectiveMode = this.effectiveArtMode();
 		this.artTitleRow = lines.length;
-		const artTitle = `${this.focused && this.activePanel === "art" ? this.theme.fg("accent", ">") : " "}${this.theme.fg("muted", `${effectiveMode === "globe" ? "GLOBE" : effectiveMode === "attack" ? "SIMULATION" : "TERMINAL SIM"} · ${this.artMode.toUpperCase()}`)}`;
+		const artTitle = `${this.focused && this.activePanel === "art" ? this.theme.fg("accent", ">") : " "}${this.theme.fg("muted", `${effectiveMode === "globe" ? "GLOBE" : effectiveMode === "attack" ? "SIMULATION" : effectiveMode === "skull" ? "SKULL" : "TERMINAL SIM"} · ${this.artMode.toUpperCase()}`)}`;
 		const canToggleByMouse = innerWidth >= 3;
 		this.artToggleRange = canToggleByMouse
 			? {
@@ -577,12 +580,32 @@ export class OmegaSidebar implements Component {
 		const art = !this.artExpanded
 			? []
 			: effectiveMode === "globe"
-				? renderGlobe(innerWidth, artHeight, now)
+				? renderGlobe(
+						innerWidth,
+						artHeight,
+						now,
+						undefined,
+						Array.from({ length: 16 }, (_, index) => {
+							const level = index / 15;
+							const accent = this.theme.colors.accent;
+							const color =
+								level <= 0.7
+									? mixColors(accent, rgbColor(0, 0, 0), 0.72 * (1 - level / 0.7))
+									: mixColors(
+											accent,
+											rgbColor(255, 255, 255),
+											((level - 0.7) / 0.3) * (this.theme.appearance === "light" ? 0.15 : 0.55),
+										);
+							return foregroundAnsi(color, this.theme.getColorMode());
+						}),
+					)
 				: effectiveMode === "attack"
 					? renderAttackMap(innerWidth, artHeight, now)
-					: renderTerminalScene(innerWidth, artHeight, now);
+					: effectiveMode === "skull"
+						? renderSkull(innerWidth, artHeight, now)
+						: renderTerminalScene(innerWidth, artHeight, now);
 		for (const line of art) {
-			const colored = effectiveMode === "terminal" ? line : this.theme.fg("accent", line);
+			const colored = effectiveMode === "attack" || effectiveMode === "skull" ? this.theme.fg("accent", line) : line;
 			lines.push(this.framed(colored, safeWidth));
 		}
 		return lines.slice(0, height);

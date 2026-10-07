@@ -1,4 +1,4 @@
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { foregroundAnsi, rgbColor, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { renderAsciiGlobe, renderGlobe, resolveGlobeRenderer } from "../src/ui/sidebar-art.ts";
 
@@ -21,6 +21,21 @@ describe("sidebar globe terminal support", () => {
 });
 
 describe("sidebar globe rendering", () => {
+	it.each(["ascii", "braille"] as const)("adds a fixed upper-left highlight without changing %s geometry", (renderer) => {
+		const palette = Array.from({ length: 16 }, (_, shade) => foregroundAnsi(rgbColor(shade, 0, 0), "truecolor"));
+		for (const time of [0, 7_500, 15_000]) {
+			const plain = renderGlobe(42, 14, time, renderer);
+			const colored = renderGlobe(42, 14, time, renderer, palette);
+			expect(colored.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""))).toEqual(plain);
+			expect(colored.every((line) => visibleWidth(line) === 42)).toBe(true);
+			const highlights = colored.flatMap((line, y) => [...line.matchAll(/\x1b\[38;2;15;0;0m/g)].map((match) => ({ x: visibleWidth(line.slice(0, match.index)), y })));
+			expect(highlights.length).toBeGreaterThan(0);
+			expect(highlights.every(({ x, y }) => x < 21 && y < 7)).toBe(true);
+			expect(new Set(colored.join("").match(/\x1b\[38;2;[0-9]+;0;0m/g)).size).toBeGreaterThan(8);
+			expect(colored.filter((line) => line.includes("\x1b[")).every((line) => line.endsWith("\x1b[39m"))).toBe(true);
+		}
+	});
+
 	it.each([[42, 14], [20, 6], [1, 1], [1, 12], [40, 1]])("fits %i by %i terminal cells in both modes", (width, height) => {
 		for (const renderer of ["ascii", "braille"] as const) {
 			const frame = renderGlobe(width, height, 2_000, renderer);
