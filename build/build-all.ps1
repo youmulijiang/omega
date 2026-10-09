@@ -31,6 +31,9 @@
     Build only for the specified platform. Valid values: darwin-arm64, darwin-x64,
     linux-arm64, linux-x64, windows-x64, windows-arm64. Defaults to all platforms.
 
+.PARAMETER CompileExecutablePath
+    Use an already extracted Bun runtime for the selected platform instead of downloading it.
+
 .PARAMETER OutDir
     Output directory. Defaults to <repo-root>/out.
 
@@ -52,6 +55,7 @@ param(
     [switch]$SkipSmokeTest,
     [ValidateSet('darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-x64', 'windows-arm64', '')]
     [string]$Platform = '',
+    [string]$CompileExecutablePath = '',
     [string]$OutDir = ''
 )
 
@@ -253,6 +257,14 @@ foreach ($plat in $platforms) {
 
     $exePath = if (Test-WindowsPlatform $plat) { "$OutDir/$plat/omega.exe" } else { "$OutDir/$plat/omega" }
     $windowsArgs = @()
+    $runtimeArgs = @()
+    if ($CompileExecutablePath) {
+        if (-not $Platform) { Die 'CompileExecutablePath requires a single Platform.' }
+        if (-not (Test-Path -LiteralPath $CompileExecutablePath)) {
+            Die "Bun runtime is missing: $CompileExecutablePath"
+        }
+        $runtimeArgs = @("--compile-executable-path=$CompileExecutablePath")
+    }
     if (Test-WindowsPlatform $plat) {
         $windowsIcon = "$OutDir/$plat/omega.ico"
         node (Join-Path $repoRoot 'scripts/create-windows-icon.mjs') $iconSource $windowsIcon
@@ -262,6 +274,7 @@ foreach ($plat in $platforms) {
     bun build --compile --no-compile-autoload-bunfig `
         --target=$bunTarget `
         @windowsArgs `
+        @runtimeArgs `
         $omegaEntry `
         $imageWorker `
         $codemodeWorker `

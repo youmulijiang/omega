@@ -69,20 +69,24 @@ mkdir -p "$(dirname "$outfile")"
 	}
 });
 
-test("build-all.ps1 keeps the Windows icon in the extracted and archived output", { skip: process.platform !== "win32" }, () => {
+test("build-all.ps1 keeps the Windows icon with a pre-extracted runtime", { skip: process.platform !== "win32" }, () => {
 	const testRoot = mkdtempSync(join(repoRoot, ".tmp-omega-build-all-ps1-icon-"));
 	const output = join(testRoot, "output");
 	const platform = "windows-x64";
+	const runtime = join(testRoot, "bun.exe");
 
 	try {
+		writeFileSync(runtime, "");
 		const command = `
 function bun {
+    if (-not ($args | Where-Object { $_ -like '--compile-executable-path=*' })) { throw 'Missing runtime path' }
+    if (-not ($args | Where-Object { $_ -like '*codemode*worker.ts' })) { throw 'Missing codemode worker' }
     $outIndex = [Array]::IndexOf($args, '--outfile')
     if ($outIndex -lt 0) { throw 'Missing --outfile' }
     [System.IO.File]::WriteAllBytes($args[$outIndex + 1], [byte[]]@())
     $global:LASTEXITCODE = 0
 }
-& '${join(repoRoot, "build/build-all.ps1").replaceAll("'", "''")}' -SkipInstall -SkipDeps -SkipBuild -SkipSmokeTest -Platform ${platform} -OutDir '${output.replaceAll("'", "''")}'
+& '${join(repoRoot, "build/build-all.ps1").replaceAll("'", "''")}' -SkipInstall -SkipDeps -SkipBuild -SkipSmokeTest -Platform ${platform} -CompileExecutablePath '${runtime.replaceAll("'", "''")}' -OutDir '${output.replaceAll("'", "''")}'
 `;
 		const result = spawnSync("pwsh", ["-NoProfile", "-Command", command], {
 			cwd: repoRoot,

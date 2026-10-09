@@ -119,9 +119,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $bunVersion = bun --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read Bun version' }
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP 'omega-bun-runtimes'
           foreach ($platform in 'windows-x64', 'windows-arm64') {
+            $runtimeName = if ($platform -eq 'windows-x64') { 'bun-windows-x64-baseline' } else { 'bun-windows-aarch64' }
+            $runtimeZip = Join-Path $runtimeRoot "$runtimeName.zip"
+            New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+            Invoke-WebRequest "https://github.com/oven-sh/bun/releases/download/bun-v$bunVersion/$runtimeName.zip" `
+              -OutFile $runtimeZip -MaximumRetryCount 3 -RetryIntervalSec 3
+            Expand-Archive -LiteralPath $runtimeZip -DestinationPath $runtimeRoot
+            $runtimeExecutable = Join-Path $runtimeRoot "$runtimeName/bun.exe"
             & ./build/build-all.ps1 -SkipInstall -SkipBuild -OfflineModelData `
-              -Platform $platform -OutDir "$env:GITHUB_WORKSPACE/packages/coding-agent/binaries"
+              -Platform $platform -CompileExecutablePath $runtimeExecutable `
+              -OutDir "$env:GITHUB_WORKSPACE/packages/coding-agent/binaries"
             if ($LASTEXITCODE -ne 0) { throw "Build failed for $platform" }
             Set-Location $env:GITHUB_WORKSPACE
           }
