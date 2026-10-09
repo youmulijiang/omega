@@ -88,7 +88,7 @@ jobs:
 
       - name: Build OMEGA binaries
         run: |
-          ./scripts/build-binaries.sh \
+          bash ./scripts/build-all.sh \
             --skip-install \
             --skip-build \
             --offline-model-data \

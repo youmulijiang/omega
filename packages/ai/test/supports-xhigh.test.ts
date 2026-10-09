@@ -41,9 +41,10 @@ describe("getSupportedThinkingLevels", () => {
 	});
 
 	it("includes Claude Sonnet 5.5 with managed effort levels and official pricing", () => {
+		// https://platform.claude.com/docs/en/models/sonnet-5-5/overview
 		const model = getModel("anthropic", "claude-sonnet-5-5");
 		expect(model).toMatchObject({
-			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
 			contextWindow: 1_000_000,
 			maxTokens: 128_000,
 			compat: {

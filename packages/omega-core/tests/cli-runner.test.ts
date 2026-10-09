@@ -106,7 +106,7 @@ describe("runOmegaCli", () => {
 		await runOmegaCli(["init"]);
 
 		expect(readFileSync(join(workspace, ".omega", "agent", "scope.md"), "utf8")).toContain("# scope.md");
-		expect(log).toHaveBeenCalledWith(expect.stringContaining("Omega 工作目录已初始化"));
+		expect(log).toHaveBeenCalledWith(expect.stringContaining("Omega workspace initialized"));
 		expect(mainMock).not.toHaveBeenCalled();
 	});
 });
