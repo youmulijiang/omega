@@ -629,21 +629,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 	function createExtensionFixtures(): ExtensionFixture[] {
 		return [
 			{
-				path: "/tmp/project/.pi/extensions/answer.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/answer.ts", {
+				path: "/tmp/project/.omega/extensions/answer.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.omega/extensions/answer.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.pi/extensions",
+					baseDir: "/tmp/project/.omega/extensions",
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/extensions/local-index/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/local-index/index.ts", {
+				path: "/tmp/project/.omega/extensions/local-index/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.omega/extensions/local-index/index.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.pi/extensions",
+					baseDir: "/tmp/project/.omega/extensions",
 				}),
 			},
 			{
@@ -656,44 +656,47 @@ describe("InteractiveMode.showLoadedResources", () => {
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
-					source: "npm:pi-markdown-preview",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
-				}),
-			},
-			{
-				path: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts", {
-					source: "npm:@scope/pi-scoped",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped",
-				}),
-			},
-			{
-				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+				path: "/tmp/project/.omega/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+					"/tmp/project/.omega/npm/node_modules/pi-markdown-preview/extensions/index.ts",
 					{
-						source: "git:github.com/HazAT/pi-interactive-subagents",
+						source: "npm:pi-markdown-preview",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.omega/npm/node_modules/pi-markdown-preview",
 					},
 				),
 			},
 			{
-				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+				path: "/tmp/project/.omega/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.omega/npm/node_modules/@scope/pi-scoped/extensions/index.ts", {
+					source: "npm:@scope/pi-scoped",
+					scope: "project",
+					origin: "package",
+					baseDir: "/tmp/project/.omega/npm/node_modules/@scope/pi-scoped",
+				}),
+			},
+			{
+				path: "/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+					"/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
 					{
 						source: "git:github.com/HazAT/pi-interactive-subagents",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents",
+					},
+				),
+			},
+			{
+				path: "/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+					{
+						source: "git:github.com/HazAT/pi-interactive-subagents",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.omega/git/github.com/HazAT/pi-interactive-subagents",
 					},
 				),
 			},
@@ -709,10 +712,11 @@ describe("InteractiveMode.showLoadedResources", () => {
 		];
 	}
 
-	test("shows a compact resource listing by default", () => {
+	test("shows a compact extension listing by default without skill details", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			extensions: [{ path: "/tmp/extensions/answer.ts" }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -720,16 +724,19 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
-		expect(output).toContain("[Skills]");
-		expect(output).toContain("commit");
+		expect(output).toContain("[Extensions]");
+		expect(output).toContain("answer.ts");
+		expect(output).not.toContain("[Skills]");
+		expect(output).not.toContain("commit");
 		expect(output).not.toContain("resource-list");
 	});
 
-	test("shows full resource listing when expanded", () => {
+	test("shows full extension listing when expanded without skill details", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			toolOutputExpanded: true,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			extensions: [{ path: "/tmp/extensions/answer.ts" }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -737,17 +744,19 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
-		expect(output).toContain("[Skills]");
+		expect(output).toContain("[Extensions]");
+		expect(output).not.toContain("[Skills]");
 		expect(output).toContain("resource-list");
 		expect(output).not.toContain("commit");
 	});
 
-	test("shows full resource listing on verbose startup even when tool output is collapsed", () => {
+	test("shows full extension listing on verbose startup without skill details", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: true,
 			verbose: true,
 			toolOutputExpanded: false,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+			extensions: [{ path: "/tmp/extensions/answer.ts" }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -755,7 +764,8 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
-		expect(output).toContain("[Skills]");
+		expect(output).toContain("[Extensions]");
+		expect(output).not.toContain("[Skills]");
 		expect(output).toContain("resource-list");
 		expect(output).not.toContain("commit");
 	});
@@ -1036,13 +1046,16 @@ describe("InteractiveMode.showLoadedResources", () => {
 	test("package extensions still strip index.ts correctly (regression guard)", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
-					source: "npm:pi-markdown-preview",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
-				}),
+				path: "/tmp/project/.omega/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.omega/npm/node_modules/pi-markdown-preview/extensions/index.ts",
+					{
+						source: "npm:pi-markdown-preview",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.omega/npm/node_modules/pi-markdown-preview",
+					},
+				),
 			},
 		];
 
@@ -1064,21 +1077,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 	test("labels npm sibling extensions relative to the declaring package", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.pi/npm/node_modules/primary-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/primary-package/index.ts", {
+				path: "/tmp/project/.omega/npm/node_modules/primary-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.omega/npm/node_modules/primary-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.omega/npm/node_modules/primary-package",
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/npm/node_modules/sibling-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/sibling-package/index.ts", {
+				path: "/tmp/project/.omega/npm/node_modules/sibling-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.omega/npm/node_modules/sibling-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.omega/npm/node_modules/primary-package",
 				}),
 			},
 		];
@@ -1099,9 +1112,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 	});
 
 	test("labels Windows npm sibling extensions relative to the declaring package", () => {
-		const primaryPath = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\primary-package\\index.ts";
-		const siblingPath = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\sibling-package\\index.ts";
-		const baseDir = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\primary-package";
+		const primaryPath = "C:\\Users\\me\\.omega\\agent\\npm\\node_modules\\primary-package\\index.ts";
+		const siblingPath = "C:\\Users\\me\\.omega\\agent\\npm\\node_modules\\sibling-package\\index.ts";
+		const baseDir = "C:\\Users\\me\\.omega\\agent\\npm\\node_modules\\primary-package";
 		const extensions: ExtensionFixture[] = [
 			{
 				path: primaryPath,
@@ -1153,8 +1166,8 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
   project
-    /tmp/project/.pi/extensions/answer.ts
-    /tmp/project/.pi/extensions/local-index
+    /tmp/project/.omega/extensions/answer.ts
+    /tmp/project/.omega/extensions/local-index
     git:github.com/HazAT/pi-interactive-subagents
       extensions
       extensions/subagents
@@ -1168,13 +1181,16 @@ describe("InteractiveMode.showLoadedResources", () => {
     /tmp/temp/cli-extension.ts"`);
 	});
 
-	test("shows context paths relative to cwd while preserving full external paths", () => {
+	test("formats context paths relative to cwd but hides them from startup", () => {
 		const home = homedir();
 		const cwd = path.join(home, "Development", "pi-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [
+				{ path: path.join(home, ".omega", "agent", "AGENTS.md") },
+				{ path: path.join(cwd, "AGENTS.md") },
+			],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -1182,18 +1198,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
-		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain("[Context]");
+		expect(fakeThis.formatContextPath(path.join(home, ".omega", "agent", "AGENTS.md")).replace(/\\/g, "/")).toBe(
+			"~/.omega/agent/AGENTS.md",
+		);
+		expect(fakeThis.formatContextPath(path.join(cwd, "AGENTS.md"))).toBe("AGENTS.md");
 		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
 	});
 
-	test("shows system prompt context paths before project context files", () => {
+	test("hides system prompt and project context files from startup", () => {
 		const cwd = "/tmp/project";
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			systemPromptSource: { path: path.join(cwd, ".pi", "SYSTEM.md") },
-			appendSystemPromptSources: [{ path: path.join(cwd, ".pi", "APPEND_SYSTEM.md") }],
+			systemPromptSource: { path: path.join(cwd, ".omega", "SYSTEM.md") },
+			appendSystemPromptSources: [{ path: path.join(cwd, ".omega", "APPEND_SYSTEM.md") }],
 			contextFiles: [{ path: path.join(cwd, "AGENTS.md") }],
 		});
 
@@ -1202,18 +1221,23 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
-		expect(output).toContain("[Context]");
-		expect(output).toContain(".pi/SYSTEM.md, .pi/APPEND_SYSTEM.md, AGENTS.md");
+		expect(output).not.toContain("[Context]");
+		expect(output).not.toContain("SYSTEM.md");
+		expect(output).not.toContain("APPEND_SYSTEM.md");
+		expect(output).not.toContain("AGENTS.md");
 	});
 
-	test("shows full context paths when expanded", () => {
+	test("formats full context paths but hides them even when expanded", () => {
 		const home = homedir();
 		const cwd = path.join(home, "Development", "pi-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			toolOutputExpanded: true,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [
+				{ path: path.join(home, ".omega", "agent", "AGENTS.md") },
+				{ path: path.join(cwd, "AGENTS.md") },
+			],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -1221,10 +1245,14 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
-		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md");
-		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
-		expect(output).not.toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain("[Context]");
+		expect(fakeThis.formatDisplayPath(path.join(home, ".omega", "agent", "AGENTS.md")).replace(/\\/g, "/")).toBe(
+			"~/.omega/agent/AGENTS.md",
+		);
+		expect(fakeThis.formatDisplayPath(path.join(cwd, "AGENTS.md")).replace(/\\/g, "/")).toBe(
+			"~/Development/pi-mono/AGENTS.md",
+		);
+		expect(output).not.toContain("~/.omega/agent/AGENTS.md, AGENTS.md");
 	});
 
 	test("does not show verbose listing on quiet startup during reload", () => {

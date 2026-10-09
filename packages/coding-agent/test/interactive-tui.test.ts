@@ -205,7 +205,14 @@ describe("createInteractiveTui", () => {
 		renderer.addChild(component);
 
 		type FallbackContext = {
-			runtimeHost: { session: { settingsManager: { getFullscreenCopyOnSelect: () => boolean } } };
+			runtimeHost: {
+				session: {
+					settingsManager: {
+						getFullscreenCopyOnSelect: () => boolean;
+						getFullscreenWheelScrollLines: () => WheelScrollLines;
+					};
+				};
+			};
 			renderer: ReturnType<typeof createInteractiveTui>;
 			ui: TUI;
 			options: { tuiMode?: TuiMode; startupDiagnostics?: Array<{ type: "warning"; message: string }> };
@@ -213,7 +220,14 @@ describe("createInteractiveTui", () => {
 			extensionTerminalInputSubscriptions: Set<never>;
 		};
 		const context = Object.assign(Object.create(InteractiveMode.prototype), {
-			runtimeHost: { session: { settingsManager: { getFullscreenCopyOnSelect: () => true } } },
+			runtimeHost: {
+				session: {
+					settingsManager: {
+						getFullscreenCopyOnSelect: () => true,
+						getFullscreenWheelScrollLines: () => "auto" as WheelScrollLines,
+					},
+				},
+			},
 			renderer,
 			ui: undefined as unknown as TUI,
 			options: { tuiMode: "fullscreen" as TuiMode },

@@ -68,7 +68,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep zip
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep zip unzip openssh-server
           sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd
 
       - name: Install dependencies
@@ -82,6 +82,9 @@ jobs:
 
       - name: Build with bundled model data
         run: npm run build:offline
+
+      - name: Build environment daemon
+        run: npm --prefix packages/env run build:daemon
 
       - name: Test
         run: ./test.sh
