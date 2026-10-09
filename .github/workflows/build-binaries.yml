@@ -23,8 +23,19 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform_group: unix
+          - runner: windows-2025
+            platform_group: windows
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
     env:
@@ -66,6 +77,7 @@ jobs:
           cache: npm
 
       - name: Install system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep zip unzip openssh-server
@@ -84,18 +96,35 @@ jobs:
         run: npm run build:offline
 
       - name: Build environment daemon
+        if: runner.os == 'Linux'
         run: npm --prefix packages/env run build:daemon
 
       - name: Test
+        if: runner.os == 'Linux'
         run: ./test.sh
 
-      - name: Build OMEGA binaries
+      - name: Build OMEGA Unix binaries
+        if: runner.os == 'Linux'
         run: |
-          bash ./scripts/build-all.sh \
-            --skip-install \
-            --skip-build \
-            --offline-model-data \
-            --out "${GITHUB_WORKSPACE}/packages/coding-agent/binaries"
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            bash ./scripts/build-all.sh \
+              --skip-install \
+              --skip-build \
+              --offline-model-data \
+              --platform "$platform" \
+              --out "${GITHUB_WORKSPACE}/packages/coding-agent/binaries"
+          done
+
+      - name: Build OMEGA Windows binaries with icons
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($platform in 'windows-x64', 'windows-arm64') {
+            & ./build/build-all.ps1 -SkipInstall -SkipBuild -OfflineModelData `
+              -Platform $platform -OutDir "$env:GITHUB_WORKSPACE/packages/coding-agent/binaries"
+            if ($LASTEXITCODE -ne 0) { throw "Build failed for $platform" }
+            Set-Location $env:GITHUB_WORKSPACE
+          }
 
       - name: Prepare release assets
         shell: bash
@@ -103,14 +132,16 @@ jobs:
           set -euo pipefail
 
           mkdir -p release-assets
-          binary_assets=(
-            omega-darwin-arm64.tar.gz
-            omega-darwin-x64.tar.gz
-            omega-linux-arm64.tar.gz
-            omega-linux-x64.tar.gz
-            omega-windows-arm64.zip
-            omega-windows-x64.zip
-          )
+          if [[ '${{ matrix.platform_group }}' == windows ]]; then
+            binary_assets=(omega-windows-arm64.zip omega-windows-x64.zip)
+          else
+            binary_assets=(
+              omega-darwin-arm64.tar.gz
+              omega-darwin-x64.tar.gz
+              omega-linux-arm64.tar.gz
+              omega-linux-x64.tar.gz
+            )
+          fi
 
           for asset in "${binary_assets[@]}"; do
             source="packages/coding-agent/binaries/$asset"
@@ -119,12 +150,12 @@ jobs:
           done
 
           cd release-assets
-          sha256sum "${binary_assets[@]}" > SHA256SUMS
+          sha256sum "${binary_assets[@]}" > 'SHA256SUMS-${{ matrix.platform_group }}'
 
       - name: Upload release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: omega-release-${{ env.RELEASE_TAG }}
+          name: omega-release-${{ env.RELEASE_TAG }}-${{ matrix.platform_group }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
@@ -164,7 +195,8 @@ jobs:
       - name: Download release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: omega-release-${{ env.EXPECTED_VERSION }}
+          pattern: omega-release-${{ env.EXPECTED_VERSION }}-*
+          merge-multiple: true
           path: release-assets
 
       - name: Smoke test Unix binary
@@ -220,7 +252,8 @@ jobs:
       - name: Download release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: omega-release-${{ env.RELEASE_TAG }}
+          pattern: omega-release-${{ env.RELEASE_TAG }}-*
+          merge-multiple: true
           path: release-assets
 
       - name: Verify release assets
@@ -228,6 +261,7 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
+          cat SHA256SUMS-unix SHA256SUMS-windows > SHA256SUMS
           sha256sum -c SHA256SUMS
 
       - name: Publish GitHub Release
